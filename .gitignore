@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.csv
+.env
+
+# Secrets
+.iimjobs_cookie.txt
+.foundit_cookie.txt
+.naukri_cookie.txt
+config.json
+profiles.json
+
+# Reports
+job_queue_report.html
+debug_*.txt
+
+# VS Code
+.vscode/

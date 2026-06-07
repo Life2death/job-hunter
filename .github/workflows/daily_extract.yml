@@ -1,0 +1,47 @@
+name: Daily Job Extraction
+
+on:
+  schedule:
+    # 9:00 AM IST = 3:30 AM UTC (March-April), 3:30 UTC (Nov-Feb with +5:30 offset, 9:00 AM = 3:30 UTC)
+    # Using 3:30 UTC to cover 9:00 AM IST year-round
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      FOUNDIT_COOKIE: ${{ secrets.FOUNDIT_COOKIE }}
+      IIMJOBS_COOKIE: ${{ secrets.IIMJOBS_COOKIE }}
+      NAUKRI_COOKIE: ${{ secrets.NAUKRI_COOKIE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run job extraction
+        run: |
+          python multi_portal_job_hunter.py --cloud 2>&1
+
+      - name: Upload job IDs log
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-listing-ids
+          path: |
+            multi_portal_results.csv
+          retention-days: 7
+          if-no-files-found: ignore

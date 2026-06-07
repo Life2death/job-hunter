@@ -1,0 +1,5 @@
+job_id,track,applied_date,status,title,company
+050626014919,SM,2026-06-06,"unknown:{""statusCode"": 0, ""applyRedirectUrl"": ""https://www.naukri.com/myapply/saveApply?strJobsarr=[05062601",Project Manager,Morningstar
+030626502873,SM,2026-06-06,"unknown:{""statusCode"": 0, ""jobs"": [{""status"": 200, ""message"": ""You have successfully applied to this job."", ",Scrum Master,KSB
+030626029833,SM,2026-06-06,questionnaire,Scrum Master,Academian India
+280526021981,SM,2026-06-06,applied_redirect,HCL Tech Hiring For Release Train engineer (RTE) Role,HCLTech
