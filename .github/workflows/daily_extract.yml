@@ -39,3 +39,18 @@ jobs:
           path: multi_portal_results.csv
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Send email report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_ADDRESS }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: Job Hunter Report — ${{ github.workflow_ref }}
+          to: ${{ secrets.EMAIL_ADDRESS }}
+          from: Job Hunter Bot
+          body: |
+            Pipeline run complete.
+            Results saved to Supabase.
+            View: https://job-hunter-x5l1.onrender.com

@@ -125,31 +125,76 @@ SEARCHES = {
 
 FRESH_MAX  = 3
 AGING_MAX  = 7
-COMP_FLOOR = 4_000_000
+COMP_FLOOR  = 4_000_000
+COMP_TARGET = 5_000_000
 
 
-# ─── Scoring ──────────────────────────────────────────────────────────────────
+# ─── Scoring v2 ───────────────────────────────────────────────────────────────
 
 SAFE_KEYWORDS = ["safe", "pi planning", "agile release train", "scaled agile",
-                 "less framework", "nexus", "scrum@scale", "lean agile"]
-BFSI_KEYWORDS = ["bank", "financial", "fintech", "insurance", "payment", "capital",
-                 "credit", "lending", "wealth", "asset management", "securities"]
-GOVERNANCE_KW = ["program governance", "raid", "steering", "p&l", "budget",
-                 "pmo", "transformation", "portfolio", "roadmap"]
-SCOPE_KW      = ["p&l", "portfolio", "multi-account", "org building", "headcount",
-                 "cxo", "cto", "vp", "director", "head of"]
-SENIOR_PM_KW  = ["senior program", "sr program", "technical program", "delivery program",
-                 "tpm", "pgm"]
-TIER1_COMPANIES = ["barclays","jpmorgan","jp morgan","citi","deutsche","morgan stanley",
-                   "goldman","amex","mastercard","visa","ubs","siemens","accenture",
-                   "capgemini","infosys","tcs","wipro"]
-GOOD_LOCS = ["mumbai","pune","thane","navi mumbai","remote","hybrid"]
+                 "less framework", "nexus", "scrum@scale", "lean agile",
+                 "lean portfolio", "art sync"]
+BFSI_KEYWORDS = ["bank", "banking", "financial services", "fintech", "insurance",
+                 "payments", "capital markets", "credit", "lending", "wealth",
+                 "asset management", "securities", "trading", "broking"]
+GOVERNANCE_KW = ["program governance", "raid", "steering committee", "p&l",
+                 "budget", "pmo", "transformation", "portfolio", "roadmap",
+                 "stakeholder management", "delivery governance"]
+SCOPE_KW      = ["p&l", "portfolio", "multi-account", "org building",
+                 "headcount", "span of control", "delivery org", "practice lead"]
+SENIOR_PM_KW  = ["senior program", "sr program", "technical program",
+                 "delivery program", "tpm", "program governance"]
 
-# Precompile for speed
+NEGATIVE_KW   = ["intern", "internship", "fresher", "trainee", "graduate program",
+                 "entry level", "junior"]
+
+TIER1_BFSI    = ["barclays","jpmorgan","jp morgan","citi","citibank","deutsche",
+                 "morgan stanley","goldman","amex","american express","mastercard",
+                 "visa","ubs","hsbc","standard chartered","nomura","blackrock",
+                 "fidelity","wells fargo","bank of america","bnp paribas"]
+GCC_FINTECH   = ["nasdaq","fiserv","fis","broadridge","paypal","razorpay","phonepe",
+                 "cred","groww","zerodha","navi","paytm","stripe","revolut","wise"]
+IT_SERVICES   = ["accenture","capgemini","infosys","tcs","wipro","cognizant","hcl",
+                 "ltimindtree","mphasis","persistent","deloitte","ey","pwc","kpmg"]
+
+GOOD_LOCS_PRIMARY  = ["mumbai","navi mumbai","thane","pune"]
+RELOCATABLE_METROS = ["bengaluru","bangalore","hyderabad","gurgaon","gurugram","noida"]
+
+# Precompile
 _RE_DAYS = re.compile(r"\d+")
 
-def has_kw(text, kw):
+def has_kw(text: str, kw: str) -> bool:
     return re.search(rf"\b{re.escape(kw)}\b", text) is not None
+
+def count_kw(text: str, kws) -> int:
+    return sum(1 for k in kws if has_kw(text, k))
+
+
+def company_tier(company: str) -> int:
+    c = company.lower()
+    if any(t in c for t in TIER1_BFSI):  return 10
+    if any(t in c for t in GCC_FINTECH): return 8
+    if any(t in c for t in IT_SERVICES): return 6
+    return 5
+
+
+def location_score(loc: str) -> int:
+    l = loc.lower()
+    if any(x in l for x in GOOD_LOCS_PRIMARY):  return 10
+    if "remote" in l:                            return 8
+    if "hybrid" in l:                            return 7
+    if any(x in l for x in RELOCATABLE_METROS): return 6
+    return 3
+
+
+def comp_score(salary: int):
+    if salary >= COMP_FLOOR:
+        bonus = int(3 * (salary - COMP_FLOOR) / COMP_FLOOR)
+        return min(18, 15 + bonus), None
+    if salary > 0:
+        return max(3, int(15 * salary / COMP_FLOOR)), "below_floor"
+    return None, "comp_unknown"
+
 
 def score_job(job: dict, track: str):
     title   = (job.get("title", "") or "").lower()
@@ -158,7 +203,12 @@ def score_job(job: dict, track: str):
     salary  = job.get("salary_min", 0) or 0
     loc     = (job.get("location", "") or "").lower()
     text    = f"{title} {desc}"
+    text_co = f"{text} {company}"
     scores  = {}
+    flags   = []
+
+    if len(desc.strip()) < 40:
+        flags.append("no_description")
 
     if track == "SM":
         if any(has_kw(title, k) for k in ["rte", "release train", "agile coach", "enterprise agile"]):
@@ -169,8 +219,8 @@ def score_job(job: dict, track: str):
             scores["role_match"] = 18
         else:
             scores["role_match"] = 5
-        scores["safe_signal"] = min(20, sum(1 for k in SAFE_KEYWORDS if has_kw(text, k)) * 7)
-        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
+        scores["safe_signal"] = min(20, count_kw(text, SAFE_KEYWORDS) * 7)
+        scores["domain_fit"]  = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
     elif track == "PM":
         if any(has_kw(title, k) for k in SENIOR_PM_KW):
@@ -181,33 +231,36 @@ def score_job(job: dict, track: str):
             scores["role_match"] = 12
         else:
             scores["role_match"] = 5
-        scores["governance"] = min(20, sum(1 for k in GOVERNANCE_KW if has_kw(text, k)) * 5)
-        scores["domain_fit"] = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
+        scores["governance"] = min(20, count_kw(text, GOVERNANCE_KW) * 5)
+        scores["domain_fit"] = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
     elif track == "DIR":
         if any(has_kw(title, k) for k in ["vp", "head of", "cto", "chief"]):
             scores["role_match"] = 25
+        elif "associate director" in title:
+            scores["role_match"] = 16
         elif has_kw(title, "director"):
             scores["role_match"] = 22
-        elif has_kw(title, "associate director"):
-            scores["role_match"] = 18
         else:
             scores["role_match"] = 6
-        scores["scope_scale"] = min(20, sum(1 for k in SCOPE_KW if has_kw(text, k)) * 5)
-        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
+        scores["scope_scale"] = min(20, count_kw(text, SCOPE_KW) * 5)
+        scores["domain_fit"]  = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
-    # Shared
-    if salary >= COMP_FLOOR:
-        scores["comp"] = 15
-    elif salary > 0:
-        scores["comp"] = max(5, int(15 * salary / COMP_FLOOR))
-    else:
-        scores["comp"] = 8
-    scores["location"]     = 10 if any(l in loc for l in GOOD_LOCS) else 4
-    scores["availability"] = 4
-    scores["org_quality"]  = 10 if any(t in company for t in TIER1_COMPANIES) else 6
+    cs, cf = comp_score(salary)
+    if cs is not None:
+        scores["comp"] = cs
+    if cf:
+        flags.append(cf)
 
-    return scores, sum(scores.values())
+    scores["location"]    = location_score(loc)
+    scores["org_quality"] = company_tier(company)
+
+    neg = count_kw(text, NEGATIVE_KW)
+    if neg:
+        scores["seniority_penalty"] = -10 * neg
+        flags.append("junior_signal")
+
+    return scores, sum(scores.values()), flags
 
 
 def freshness(posted_str: str):
@@ -891,7 +944,7 @@ def run(tracks: list, portals: list, test_mode: bool = False):
                     if penalty is None:
                         continue
 
-                    factor_scores, raw_score = score_job(job, track)
+                    factor_scores, raw_score, flags = score_job(job, track)
                     final_score = raw_score + penalty
                     salary_label = ""
                     if job.get("salary_min") or job.get("salary_max"):
@@ -910,7 +963,7 @@ def run(tracks: list, portals: list, test_mode: bool = False):
                         "salary":    salary_label,
                         "posted":    job.get("posted_date", ""),
                         "url":       job.get("url", ""),
-                        "scores_json": json.dumps(factor_scores),
+                        "scores_json": json.dumps({"s": factor_scores, "f": flags}),
                     })
                     added += 1
 

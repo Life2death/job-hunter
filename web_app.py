@@ -51,6 +51,15 @@ def generate_html(jobs):
         fit_cls = "fit-high" if fit >= 60 else ("fit-mid" if fit >= 40 else "fit-low")
         url_display = url[:60] + "..." if len(url) > 60 else url
         status_display = f"applied {applied_date}" if status == "applied" and applied_date else status
+        flags = ""
+        raw_sj = j.get("scores_json", "")
+        if raw_sj:
+            try:
+                parsed = json.loads(raw_sj)
+                if isinstance(parsed, dict) and "f" in parsed and parsed["f"]:
+                    flags = ", ".join(parsed["f"])
+            except Exception:
+                pass
 
         rows_html += f"""
         <tr data-job-id="{job_id}">
@@ -62,6 +71,7 @@ def generate_html(jobs):
           <td>{company}</td>
           <td>{location}</td>
           <td><span class="status-{status}">{status_display}</span></td>
+          <td class="flags-cell">{flags}</td>
           <td class="url-cell"><a class="job-link" href="{url}" target="_blank" title="{url}">{url_display}</a></td>
         </tr>"""
 
@@ -94,6 +104,7 @@ def generate_html(jobs):
   .url-cell {{ max-width: 300px; overflow: hidden; text-overflow: ellipsis; }}
   .url-cell a {{ color: #1565c0; text-decoration: none; }}
   .url-cell a:hover {{ text-decoration: underline; cursor: pointer; }}
+  .flags-cell {{ max-width: 160px; font-size: 11px; color: #c62828; white-space: normal; }}
 </style>
 </head>
 <body>
@@ -115,6 +126,7 @@ def generate_html(jobs):
   <th data-col="company">Company</th>
   <th data-col="location">Location</th>
   <th data-col="status">Status</th>
+  <th data-col="flags">Flags</th>
   <th>URL</th>
 </tr></thead>
 <tbody id="tbody">{rows_html}</tbody>
@@ -159,7 +171,7 @@ function filterAndSort() {{
            (!fStatus || c[7].textContent.startsWith(fStatus)) &&
            (parseInt(c[0].textContent) >= fMin);
   }});
-  const colIdx = {{fit:0, freshness:1, track:2, portal:3, title:4, company:5, location:6, status:7}}[sortCol];
+  const colIdx = {{fit:0, freshness:1, track:2, portal:3, title:4, company:5, location:6, status:7, flags:8}}[sortCol];
   filtered.sort((a,b) => {{
     const va = a.cells[colIdx].textContent, vb = b.cells[colIdx].textContent;
     const na = parseFloat(va), nb = parseFloat(vb);
