@@ -130,8 +130,8 @@ COMP_FLOOR = 4_000_000
 
 # ─── Scoring ──────────────────────────────────────────────────────────────────
 
-SAFE_KEYWORDS = ["safe", "pi planning", "art", "agile release train", "scaled agile",
-                 "less", "nexus", "scrum@scale", "lean agile"]
+SAFE_KEYWORDS = ["safe", "pi planning", "agile release train", "scaled agile",
+                 "less framework", "nexus", "scrum@scale", "lean agile"]
 BFSI_KEYWORDS = ["bank", "financial", "fintech", "insurance", "payment", "capital",
                  "credit", "lending", "wealth", "asset management", "securities"]
 GOVERNANCE_KW = ["program governance", "raid", "steering", "p&l", "budget",
@@ -148,6 +148,9 @@ GOOD_LOCS = ["mumbai","pune","thane","navi mumbai","remote","hybrid"]
 # Precompile for speed
 _RE_DAYS = re.compile(r"\d+")
 
+def has_kw(text, kw):
+    return re.search(rf"\b{re.escape(kw)}\b", text) is not None
+
 def score_job(job: dict, track: str):
     title   = (job.get("title", "") or "").lower()
     company = (job.get("company", "") or "").lower()
@@ -158,40 +161,40 @@ def score_job(job: dict, track: str):
     scores  = {}
 
     if track == "SM":
-        if any(k in title for k in ["rte", "release train", "agile coach", "enterprise agile"]):
+        if any(has_kw(title, k) for k in ["rte", "release train", "agile coach", "enterprise agile"]):
             scores["role_match"] = 25
         elif "senior scrum" in title or "lead scrum" in title or "tribe" in title:
             scores["role_match"] = 22
         elif "scrum master" in title or "scrummaster" in title:
             scores["role_match"] = 18
         else:
-            scores["role_match"] = 8
-        scores["safe_signal"] = min(20, sum(1 for k in SAFE_KEYWORDS if k in text) * 7)
-        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if k in text + company) * 5)
+            scores["role_match"] = 5
+        scores["safe_signal"] = min(20, sum(1 for k in SAFE_KEYWORDS if has_kw(text, k)) * 7)
+        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
 
     elif track == "PM":
-        if any(k in title for k in SENIOR_PM_KW):
+        if any(has_kw(title, k) for k in SENIOR_PM_KW):
             scores["role_match"] = 23
-        elif "program manager" in title:
+        elif has_kw(title, "program manager"):
             scores["role_match"] = 18
-        elif "project manager" in title:
+        elif has_kw(title, "project manager"):
             scores["role_match"] = 12
         else:
-            scores["role_match"] = 8
-        scores["governance"] = min(20, sum(1 for k in GOVERNANCE_KW if k in text) * 5)
-        scores["domain_fit"] = min(15, sum(1 for k in BFSI_KEYWORDS if k in text + company) * 5)
+            scores["role_match"] = 5
+        scores["governance"] = min(20, sum(1 for k in GOVERNANCE_KW if has_kw(text, k)) * 5)
+        scores["domain_fit"] = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
 
     elif track == "DIR":
-        if any(k in title for k in ["vp", "head of", "cto", "chief"]):
+        if any(has_kw(title, k) for k in ["vp", "head of", "cto", "chief"]):
             scores["role_match"] = 25
-        elif "director" in title:
+        elif has_kw(title, "director"):
             scores["role_match"] = 22
-        elif "associate director" in title:
+        elif has_kw(title, "associate director"):
             scores["role_match"] = 18
         else:
-            scores["role_match"] = 10
-        scores["scope_scale"] = min(20, sum(1 for k in SCOPE_KW if k in text) * 5)
-        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if k in text + company) * 5)
+            scores["role_match"] = 6
+        scores["scope_scale"] = min(20, sum(1 for k in SCOPE_KW if has_kw(text, k)) * 5)
+        scores["domain_fit"]  = min(15, sum(1 for k in BFSI_KEYWORDS if has_kw(text + " " + company, k)) * 5)
 
     # Shared
     if salary >= COMP_FLOOR:
