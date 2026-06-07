@@ -100,7 +100,7 @@ def generate_html(jobs):
 <h1>Job Queue</h1>
 <div class="filters">
   <label>Track: <select id="fTrack"><option value="">All</option><option>SM</option><option>PM</option><option>DIR</option></select></label>
-  <label>Portal: <select id="fPortal"><option value="">All</option><option>LinkedIn</option><option>Indeed</option><option>Foundit</option><option>IIMJobs</option><option>Naukri</option></select></label>
+  <label>Portal: <select id="fPortal"><option value="">All</option><option>LinkedIn</option><option>Adzuna</option><option>Foundit</option><option>IIMJobs</option><option>Naukri</option></select></label>
   <label>Status: <select id="fStatus"><option value="">All</option><option>not_applied</option><option>applied</option><option>skipped</option><option>not_interested</option></select></label>
   <label>Min Fit: <input id="fMinFit" type="number" value="0" style="width:60px"></label>
   <span class="count" id="jobCount"></span>

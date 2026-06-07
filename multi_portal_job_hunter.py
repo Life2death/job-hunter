@@ -1,7 +1,7 @@
 """
 multi_portal_job_hunter.py
 Multi-portal job search for Vikram Panmand's 3-track senior job search.
-Fetches from LinkedIn, Indeed, Foundit, IIMJobs, applies scoring rubric,
+Fetches from LinkedIn, Adzuna, Foundit, IIMJobs, Naukri, applies scoring rubric,
 and outputs combined ranked CSV + SQLite DB.
 
 Tracks:
@@ -16,7 +16,7 @@ Usage:
     python multi_portal_job_hunter.py --test        # 1 page per keyword, print table
 """
 
-import sys, io, os, json, csv, argparse, time, socket, re, sqlite3
+import sys, io, os, json, csv, argparse, time, socket, re, sqlite3, hashlib
 from datetime import date, datetime
 from pathlib import Path
 from functools import lru_cache
@@ -75,6 +75,9 @@ def _cookie(key):
                     if val.startswith(prefix):
                         val = val[len(prefix):].lstrip()
                 return val
+    env_val = os.environ.get(f"{key.upper()}_COOKIE")
+    if env_val:
+        return env_val
     return CONFIG.get("cookies", {}).get(key, "")
 
 TODAY = date.today()
@@ -295,15 +298,35 @@ def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
                     if not urn_div:
                         continue
                     jid     = urn_div["data-entity-urn"].split(":")[-1]
-                    title   = card.find("h3", class_=re.compile("base-search-card__title"))
-                    company = card.find("h4", class_=re.compile("base-search-card__subtitle"))
-                    loc_el  = card.find("span", class_=re.compile("job-search-card__location"))
+
+                    for sel in ["h3.base-search-card__title",
+                                "h3[class*=title]",
+                                ".base-search-card__title",
+                                "[class*=job-card-list__title]"]:
+                        title_el = card.select_one(sel)
+                        if title_el and title_el.get_text(strip=True):
+                            break
+                    for sel in ["h4.base-search-card__subtitle",
+                                "h4[class*=subtitle]",
+                                ".base-search-card__subtitle",
+                                "[class*=job-card-search__company-name]",
+                                "[class*=artdeco-entity-lockup__subtitle]"]:
+                        comp_el = card.select_one(sel)
+                        if comp_el and comp_el.get_text(strip=True):
+                            break
+                    for sel in ["span.job-search-card__location",
+                                "[class*=job-card-search__location]",
+                                "[class*=artdeco-entity-lockup__caption]"]:
+                        loc_el  = card.select_one(sel)
+                        if loc_el and loc_el.get_text(strip=True):
+                            break
                     time_el = card.find("time")
+
                     jobs.append({
                         "job_id":   f"li_{jid}",
                         "portal":   "LinkedIn",
-                        "title":    title.get_text(strip=True) if title else "",
-                        "company":  company.get_text(strip=True) if company else "",
+                        "title":    title_el.get_text(strip=True) if title_el else "",
+                        "company":  comp_el.get_text(strip=True) if comp_el else "",
                         "location": loc_el.get_text(strip=True) if loc_el else location,
                         "posted_date": time_el.get("datetime", "") if time_el else "",
                         "salary_min": 0,
@@ -320,79 +343,89 @@ def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
     return jobs
 
 
-# ─── Portal: Indeed ───────────────────────────────────────────────────────────
+# ─── Portal: Adzuna (free API, no auth cookie required) ─────────────────────
 
-def fetch_indeed(keyword: str, location: str, pages: int = 3) -> list:
+ADZUNA_API = "https://api.adzuna.com/v1/api/jobs/in/search"
+
+def fetch_adzuna(keyword: str, location: str, pages: int = 3) -> list:
+    app_id = os.environ.get("ADZUNA_APP_ID") or _cookie("adzuna_app_id")
+    api_key = os.environ.get("ADZUNA_API_KEY") or _cookie("adzuna_api_key")
+    if not app_id or not api_key:
+        print("    Adzuna: missing ADZUNA_APP_ID / ADZUNA_API_KEY env vars")
+        return []
+
     jobs = []
+    seen_urls = set()
 
     for page in range(pages):
         try:
-            resp = curl_requests.get(
-                "https://in.indeed.com/jobs",
-                params={"q": keyword, "l": location, "fromage": "7",
-                        "start": str(page * 10), "sort": "date"},
+            resp = requests.get(
+                f"{ADZUNA_API}/{page + 1}",
+                params={
+                    "app_id": app_id,
+                    "app_key": api_key,
+                    "what": keyword,
+                    "where": location,
+                    "results_per_page": 20,
+                    "sort_by": "date",
+                    "max_days_old": 30,
+                },
                 headers={
                     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
                                    "Chrome/124.0.0.0 Safari/537.36"),
-                    "Accept-Language": "en-US,en;q=0.9",
                 },
-                impersonate="chrome124",
                 timeout=20,
             )
             if resp.status_code != 200:
-                _save_debug("indeed", resp)
+                print(f"Adzuna HTTP {resp.status_code}")
                 break
 
-            soup  = BeautifulSoup(resp.content, "lxml")
-            links = soup.select("a[data-jk]")
-            if not links:
-                _save_debug("indeed", resp)
+            data = resp.json()
+            items = data.get("results", [])
+            if not items:
                 break
 
-            for link in links:
-                jk    = link.get("data-jk", "")
-                title = link.get_text(strip=True)
-                card  = link.find_parent("[data-testid='slider_item']")
-                company = location = salary = ""
+            for item in items:
+                url = item.get("redirect_url", "")
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
 
-                if card:
-                    el = card.select_one("span[data-testid='company-name']")
-                    if el: company = el.get_text(strip=True)
-                    el = card.select_one("div[data-testid='text-location']")
-                    if el: location = el.get_text(strip=True)
-                    el = card.select_one("[data-testid*='salary']")
-                    if el: salary = el.get_text(strip=True)
+                jid = item.get("id", hashlib.md5(url.encode()).hexdigest()[:12])
+                title = item.get("title", "")
+                comp_data = item.get("company", {}) or {}
+                company = comp_data.get("display_name", "") if isinstance(comp_data, dict) else ""
+                loc_data = item.get("location", {}) or {}
+                loc_txt = loc_data.get("display_name", location) if isinstance(loc_data, dict) else location
+                sal_min = item.get("salary_min", 0) or 0
+                sal_max = item.get("salary_max", 0) or 0
+                desc = (item.get("description", "") or "")[:500]
 
-                sal_min = 0
-                if salary and salary.startswith("\u20b9"):
-                    parts = salary.replace("\u20b9", "").split("-")
-                    if parts:
-                        try:
-                            raw = parts[0].strip().replace(",", "")
-                            if "Lakh" in raw or "lakh" in raw:
-                                raw = raw.replace("Lakh", "").replace("lakh", "").strip()
-                                sal_min = int(float(raw) * 100000)
-                            elif "/" not in raw:
-                                sal_min = int(float(raw))
-                        except Exception:
-                            pass
+                posted_raw = item.get("created", "")
+                posted_fmt = ""
+                if posted_raw:
+                    try:
+                        dt = datetime.strptime(posted_raw[:10], "%Y-%m-%d")
+                        posted_fmt = dt.strftime("%Y-%m-%d")
+                    except ValueError:
+                        posted_fmt = posted_raw[:10]
 
                 jobs.append({
-                    "job_id":   f"ind_{jk}",
-                    "portal":   "Indeed",
+                    "job_id":   f"adz_{jid}",
+                    "portal":   "Adzuna",
                     "title":    title,
                     "company":  company,
-                    "location": location or location,
-                    "posted_date": "",
-                    "salary_min": sal_min,
-                    "salary_max": 0,
-                    "description": "",
-                    "url": f"https://in.indeed.com/viewjob?jk={jk}",
+                    "location": loc_txt,
+                    "posted_date": posted_fmt,
+                    "salary_min": int(sal_min),
+                    "salary_max": int(sal_max),
+                    "description": desc,
+                    "url": url,
                 })
-            time.sleep(1)
+            time.sleep(0.5)
         except Exception as e:
-            print(f"    Indeed error: {e}")
+            print(f"    Adzuna error: {e}")
             break
     return jobs
 
@@ -689,12 +722,12 @@ def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
 
 PORTALS = {
     "linkedin": fetch_linkedin,
-    "indeed":   fetch_indeed,
+    "adzuna":   fetch_adzuna,
     "foundit":  fetch_foundit,
     "iimjobs":  fetch_iimjobs,
     "naukri":   fetch_naukri,
 }
-PORTAL_DISPLAY = {"linkedin": "LinkedIn", "indeed": "Indeed",
+PORTAL_DISPLAY = {"linkedin": "LinkedIn", "adzuna": "Adzuna",
                   "foundit": "Foundit", "iimjobs": "IIMJobs",
                   "naukri": "Naukri"}
 
@@ -1003,7 +1036,7 @@ function attachApplyHandler() {
 <h1>Job Queue</h1>
 <div class="filters">
   <label>Track: <select id="fTrack"><option value="">All</option><option>SM</option><option>PM</option><option>DIR</option></select></label>
-  <label>Portal: <select id="fPortal"><option value="">All</option><option>LinkedIn</option><option>Indeed</option><option>Foundit</option><option>IIMJobs</option></select></label>
+  <label>Portal: <select id="fPortal"><option value="">All</option><option>LinkedIn</option><option>Adzuna</option><option>Foundit</option><option>IIMJobs</option><option>Naukri</option></select></label>
   <label>Status: <select id="fStatus"><option value="">All</option><option>not_applied</option><option>applied</option><option>skipped</option><option>not_interested</option></select></label>
   <label>Min Fit: <input id="fMinFit" type="number" value="0" style="width:60px"></label>
   <span class="count" id="jobCount"></span>
