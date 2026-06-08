@@ -266,7 +266,7 @@ def api_jobs():
         query = query.eq("status", status)
     if applied_date:
         query = query.eq("applied_date", applied_date)
-    query = query.gte("fit", min_fit).order("fit", desc=True).limit(0)
+    query = query.gte("fit", min_fit).order("fit", desc=True).range(0, 100000)
     result = query.execute()
     return jsonify(result.data if result else [])
 
