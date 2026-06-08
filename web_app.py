@@ -239,15 +239,41 @@ var gridOptions = {{
          'status-applied': p => p.data.status === 'applied',
          'status-manual_apply': p => p.data.status === 'manual_apply'
        }},
-       valueFormatter: function(p) {{
-         if (p.value === 'applied' && p.data.applied_date) return 'applied ' + p.data.applied_date;
-         if (p.value === 'manual_apply') return 'manual apply';
-         return p.value || 'not_applied';
-       }},
-       editable: true,
-       cellEditor: 'agSelectCellEditor',
-       cellEditorParams: {{
-         values: ['not_applied', 'applied', 'manual_apply', 'skipped', 'not_interested']
+       cellRenderer: function(params) {{
+         var sel = document.createElement('select');
+         sel.style.width = '100%';
+         sel.style.border = 'none';
+         sel.style.background = 'transparent';
+         sel.style.font = 'inherit';
+         sel.style.cursor = 'pointer';
+         sel.style.outline = 'none';
+         var opts = ['not_applied', 'applied', 'manual_apply', 'skipped', 'not_interested'];
+         opts.forEach(function(v) {{
+           var o = document.createElement('option');
+           o.value = v;
+           if (v === 'applied' && params.data.applied_date) o.textContent = 'applied ' + params.data.applied_date;
+           else if (v === 'manual_apply') o.textContent = 'manual apply';
+           else o.textContent = v.replace(/_/g, ' ');
+           if (params.value === v) o.selected = true;
+           sel.appendChild(o);
+         }});
+         sel.addEventListener('change', function(e) {{
+           e.stopPropagation();
+           var ns = sel.value;
+           fetch('/api/jobs/' + encodeURIComponent(params.data.job_id) + '/status', {{
+             method: 'POST',
+             headers: {{'Content-Type': 'application/json'}},
+             body: JSON.stringify({{status: ns}})
+           }}).then(function(r) {{
+             if (r.ok) {{
+               var nd = Object.assign({{}}, params.data);
+               nd.status = ns;
+               if (ns === 'applied') nd.applied_date = new Date().toISOString().slice(0, 10);
+               params.node.setData(nd);
+             }}
+           }}).catch(function() {{}});
+         }});
+         return sel;
        }}
     }},
     {{ headerName: 'Flags', width: 160, filter: 'agTextColumnFilter',
@@ -298,24 +324,6 @@ var gridOptions = {{
   animateRows: true,
   enableCellTextSelection: true,
   ensureDomOrder: true,
-  onCellValueChanged: function(event) {{
-    if (event.colDef.field !== 'status') return;
-    var jobId = event.data.job_id;
-    var newStatus = event.newValue;
-    fetch('/api/jobs/' + encodeURIComponent(jobId) + '/status', {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{status: newStatus}})
-    }}).then(function(r) {{
-      if (!r.ok) {{
-        event.node.setDataValue('status', event.oldValue);
-      }} else if (newStatus === 'applied') {{
-        event.node.setDataValue('applied_date', new Date().toISOString().slice(0, 10));
-      }}
-    }}).catch(function() {{
-      event.node.setDataValue('status', event.oldValue);
-    }});
-  }},
 }};
 
 var gridDiv = document.getElementById('jobGrid');
