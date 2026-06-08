@@ -31,9 +31,12 @@ def get_cloud():
     return _cloud
 
 
-TABS_HTML = """<div class="tabs">
-  <a class="tab" href="/">Dashboard</a>
-  <a class="tab tab-active" href="/jobs">Job Queue</a>
+def tabs_html(active="dashboard"):
+    dash_cls = "tab tab-active" if active == "dashboard" else "tab"
+    jobs_cls = "tab tab-active" if active == "jobs" else "tab"
+    return f"""<div class="tabs">
+  <a class="{dash_cls}" href="/">Dashboard</a>
+  <a class="{jobs_cls}" href="/jobs">Job Queue</a>
 </div>"""
 
 BASE_CSS = """<style>
@@ -89,7 +92,7 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
 </style>
 </head>
 <body>
-{TABS_HTML}
+{tabs_html("jobs")}
 <h1>Job Queue</h1>
 {hint}
 <div id="jobGrid" class="ag-theme-alpine"></div>
@@ -194,7 +197,7 @@ def generate_dashboard_html():
 </style>
 </head>
 <body>
-{TABS_HTML}
+{tabs_html("dashboard")}
 <h1>Dashboard</h1>
 <div id="app">
   <div class="cards">
@@ -263,8 +266,7 @@ def api_jobs():
         query = query.eq("status", status)
     if applied_date:
         query = query.eq("applied_date", applied_date)
-    query = query.gte("fit", min_fit).order("fit", desc=True)
-
+    query = query.gte("fit", min_fit).order("fit", desc=True).limit(0)
     result = query.execute()
     return jsonify(result.data if result else [])
 
