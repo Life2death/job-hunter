@@ -32,12 +32,29 @@ def get_cloud():
     return _cloud
 
 
-def generate_html(jobs):
+def _build_qs(page, track, portal, status, min_fit):
+    import urllib.parse
+    parts = [("page", str(page)), ("min_fit", str(min_fit))]
+    if track:
+        parts.append(("track", track))
+    if portal:
+        parts.append(("portal", portal))
+    if status:
+        parts.append(("status", status))
+    return urllib.parse.urlencode(parts)
+
+def _sel(a, b):
+    return " selected" if a == b else ""
+
+def generate_html(jobs, page=1, per_page=200, total=0, track="", portal="", status="", min_fit=0):
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    qs = lambda p: _build_qs(p, track, portal, status, min_fit)
+
     rows_html = ""
     for j in jobs:
         job_id = j.get("job_id", "")
-        track = j.get("track", "")
-        portal = j.get("portal", "")
+        jtrack = j.get("track", "")
+        jportal = j.get("portal", "")
         title = j.get("title", "")
         company = j.get("company", "")
         location = j.get("location", "")
@@ -45,12 +62,12 @@ def generate_html(jobs):
         url = j.get("url", "") or ""
         fit = j.get("fit", 0)
         freshness = j.get("freshness", "")
-        status = j.get("status", "not_applied")
+        jstatus = j.get("status", "not_applied")
         applied_date = j.get("applied_date", "") or ""
 
         fit_cls = "fit-high" if fit >= 60 else ("fit-mid" if fit >= 40 else "fit-low")
         url_display = url[:60] + "..." if len(url) > 60 else url
-        status_display = f"applied {applied_date}" if status == "applied" and applied_date else status
+        status_display = f"applied {applied_date}" if jstatus == "applied" and applied_date else jstatus
         flags = ""
         raw_sj = j.get("scores_json", "")
         if raw_sj:
@@ -65,15 +82,19 @@ def generate_html(jobs):
         <tr data-job-id="{job_id}">
           <td>{fit}</td>
           <td>{freshness}</td>
-          <td>{track}</td>
-          <td>{portal}</td>
+          <td>{jtrack}</td>
+          <td>{jportal}</td>
           <td>{title}</td>
           <td>{company}</td>
           <td>{location}</td>
-          <td><span class="status-{status}">{status_display}</span></td>
+          <td><span class="status-{jstatus}">{status_display}</span></td>
           <td class="flags-cell">{flags}</td>
           <td class="url-cell"><a class="job-link" href="{url}" target="_blank" title="{url}">{url_display}</a></td>
         </tr>"""
+
+    start = (page - 1) * per_page + 1
+    end = min(page * per_page, total)
+    showing = f"Showing {start}&ndash;{end} of {total}" if total else f"{len(jobs)} jobs"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -90,9 +111,7 @@ def generate_html(jobs):
   .filters .count {{ margin-left: auto; color: #555; }}
   table {{ width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
   th, td {{ padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }}
-  th {{ background: #f0f0f0; cursor: pointer; user-select: none; position: sticky; top: 0; }}
-  th:hover {{ background: #e0e0e0; }}
-  th::after {{ content: " \\25B4\\25BE"; font-size: 9px; color: #999; }}
+  th {{ background: #f0f0f0; user-select: none; position: sticky; top: 0; }}
   tr:hover {{ background: #fafafa; }}
   .fit-high {{ color: #1a7d1a; font-weight: 700; }}
   .fit-mid  {{ color: #b8860b; }}
@@ -105,32 +124,44 @@ def generate_html(jobs):
   .url-cell a {{ color: #1565c0; text-decoration: none; }}
   .url-cell a:hover {{ text-decoration: underline; cursor: pointer; }}
   .flags-cell {{ max-width: 160px; font-size: 11px; color: #c62828; white-space: normal; }}
+  .pagination {{ display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }}
+  .pagination a, .pagination span {{ padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px; text-decoration: none; color: #333; background: #fff; font-size: 14px; }}
+  .pagination a:hover:not(.disabled) {{ background: #e0e0e0; }}
+  .pagination .disabled {{ color: #aaa; cursor: default; border-color: #eee; }}
+  .pagination .current {{ background: #1565c0; color: #fff; border-color: #1565c0; font-weight: 600; }}
 </style>
 </head>
 <body>
 <h1>Job Queue</h1>
 <div class="filters">
-  <label>Track: <select id="fTrack"><option value="">All</option><option>SM</option><option>PM</option><option>DIR</option></select></label>
-  <label>Portal: <select id="fPortal"><option value="">All</option><option>LinkedIn</option><option>Adzuna</option><option>Foundit</option><option>IIMJobs</option><option>Naukri</option></select></label>
-  <label>Status: <select id="fStatus"><option value="">All</option><option>not_applied</option><option>applied</option><option>skipped</option><option>not_interested</option></select></label>
-  <label>Min Fit: <input id="fMinFit" type="number" value="0" style="width:60px"></label>
-  <span class="count" id="jobCount"></span>
+  <label>Track: <select id="fTrack" onchange="goFilter()"><option value=""{_sel(track, "")}>All</option><option value="SM"{_sel(track, "SM")}>SM</option><option value="PM"{_sel(track, "PM")}>PM</option><option value="DIR"{_sel(track, "DIR")}>DIR</option></select></label>
+  <label>Portal: <select id="fPortal" onchange="goFilter()"><option value=""{_sel(portal, "")}>All</option><option value="LinkedIn"{_sel(portal, "LinkedIn")}>LinkedIn</option><option value="Adzuna"{_sel(portal, "Adzuna")}>Adzuna</option><option value="Foundit"{_sel(portal, "Foundit")}>Foundit</option><option value="IIMJobs"{_sel(portal, "IIMJobs")}>IIMJobs</option><option value="Naukri"{_sel(portal, "Naukri")}>Naukri</option></select></label>
+  <label>Status: <select id="fStatus" onchange="goFilter()"><option value=""{_sel(status, "")}>All</option><option value="not_applied"{_sel(status, "not_applied")}>not_applied</option><option value="applied"{_sel(status, "applied")}>applied</option><option value="skipped"{_sel(status, "skipped")}>skipped</option><option value="not_interested"{_sel(status, "not_interested")}>not_interested</option></select></label>
+  <label>Min Fit: <input id="fMinFit" type="number" value="{min_fit}" style="width:60px" onchange="goFilter()"></label>
+  <span class="count" id="jobCount">{showing}</span>
 </div>
 <table>
 <thead><tr>
-  <th data-col="fit" data-num="1">Fit</th>
-  <th data-col="freshness">Fresh</th>
-  <th data-col="track">Track</th>
-  <th data-col="portal">Portal</th>
-  <th data-col="title">Title</th>
-  <th data-col="company">Company</th>
-  <th data-col="location">Location</th>
-  <th data-col="status">Status</th>
-  <th data-col="flags">Flags</th>
+  <th>Fit</th>
+  <th>Fresh</th>
+  <th>Track</th>
+  <th>Portal</th>
+  <th>Title</th>
+  <th>Company</th>
+  <th>Location</th>
+  <th>Status</th>
+  <th>Flags</th>
   <th>URL</th>
 </tr></thead>
 <tbody id="tbody">{rows_html}</tbody>
 </table>
+<div class="pagination">
+  <a href="/?{qs(1)}" class="{'disabled' if page <= 1 else ''}">&laquo; First</a>
+  <a href="/?{qs(page if page <= 1 else page - 1)}" class="{'disabled' if page <= 1 else ''}">&#8249; Prev</a>
+  <span class="current">Page {page} of {total_pages}</span>
+  <a href="/?{qs(page if page >= total_pages else page + 1)}" class="{'disabled' if page >= total_pages else ''}">Next &#8250;</a>
+  <a href="/?{qs(total_pages)}" class="{'disabled' if page >= total_pages else ''}">Last &raquo;</a>
+</div>
 <script>
 function attachApplyHandler() {{
   document.querySelectorAll('.job-link').forEach(function(link) {{
@@ -155,42 +186,15 @@ function attachApplyHandler() {{
 }}
 attachApplyHandler();
 
-const tbody = document.getElementById('tbody');
-const allRows = Array.from(tbody.querySelectorAll('tr'));
-let sortCol = 'fit', sortDesc = true;
-
-function filterAndSort() {{
-  const fTrack = document.getElementById('fTrack').value;
-  const fPortal = document.getElementById('fPortal').value;
-  const fStatus = document.getElementById('fStatus').value;
-  const fMin = parseInt(document.getElementById('fMinFit').value) || 0;
-  let filtered = allRows.filter(r => {{
-    const c = r.cells;
-    return (!fTrack || c[2].textContent === fTrack) &&
-           (!fPortal || c[3].textContent === fPortal) &&
-           (!fStatus || c[7].textContent.startsWith(fStatus)) &&
-           (parseInt(c[0].textContent) >= fMin);
-  }});
-  const colIdx = {{fit:0, freshness:1, track:2, portal:3, title:4, company:5, location:6, status:7, flags:8}}[sortCol];
-  filtered.sort((a,b) => {{
-    const va = a.cells[colIdx].textContent, vb = b.cells[colIdx].textContent;
-    const na = parseFloat(va), nb = parseFloat(vb);
-    const cmp = isNaN(na) || isNaN(nb) ? va.localeCompare(vb) : na - nb;
-    return sortDesc ? -cmp : cmp;
-  }});
-  tbody.innerHTML = '';
-  filtered.forEach(r => tbody.appendChild(r));
-  document.getElementById('jobCount').textContent = filtered.length + ' jobs';
+function goFilter() {{
+  var params = new URLSearchParams();
+  params.set('track', document.getElementById('fTrack').value);
+  params.set('portal', document.getElementById('fPortal').value);
+  params.set('status', document.getElementById('fStatus').value);
+  params.set('min_fit', document.getElementById('fMinFit').value);
+  params.set('page', '1');
+  window.location = '/?' + params.toString();
 }}
-document.querySelectorAll('.filters select, .filters input').forEach(el => el.addEventListener('change', filterAndSort));
-document.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {{
-  if (th.dataset.col) {{
-    if (sortCol === th.dataset.col) sortDesc = !sortDesc;
-    else {{ sortCol = th.dataset.col; sortDesc = true; }}
-    filterAndSort();
-  }}
-}}));
-filterAndSort();
 </script>
 </body>
 </html>"""
@@ -204,18 +208,34 @@ def report():
 
     track = request.args.get("track")
     portal = request.args.get("portal")
+    status = request.args.get("status")
     min_fit = request.args.get("min_fit", 0, type=int)
+    page = request.args.get("page", 1, type=int)
+    per_page = 200
 
-    query = cloud.table("job_listings").select("*")
-    if track:
-        query = query.eq("track", track)
-    if portal:
-        query = query.eq("portal", portal)
-    query = query.gte("fit", min_fit).order("fit", desc=True)
+    def apply_filters(q):
+        if track:
+            q = q.eq("track", track)
+        if portal:
+            q = q.eq("portal", portal)
+        if status:
+            q = q.eq("status", status)
+        return q.gte("fit", min_fit)
 
+    count_resp = apply_filters(cloud.table("job_listings").select("*", count="exact")).execute()
+    total = getattr(count_resp, 'count', None)
+    if total is None:
+        total = len(count_resp.data)
+
+    query = apply_filters(cloud.table("job_listings").select("*")).order("fit", desc=True)
+    offset = (page - 1) * per_page
+    query = query.range(offset, offset + per_page - 1)
     result = query.execute()
     jobs = result.data if result else []
-    html = generate_html(jobs)
+
+    html = generate_html(jobs, page=page, per_page=per_page, total=total,
+                         track=track or "", portal=portal or "",
+                         status=status or "", min_fit=min_fit)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
