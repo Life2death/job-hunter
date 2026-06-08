@@ -204,6 +204,7 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
   .fit-low  {{ color: #999 !important; }}
   .status-not_applied {{ color: #d32f2f !important; }}
   .status-applied {{ color: #1a7d1a !important; }}
+  .status-manual_apply {{ color: #e65100 !important; font-weight: 600 !important; }}
   .status-skipped {{ color: #999 !important; }}
   .status-not_interested {{ color: #999 !important; }}
 </style>
@@ -233,11 +234,20 @@ var gridOptions = {{
     {{ field: 'title', flex: 1, sortable: true, filter: 'agTextColumnFilter', minWidth: 200 }},
     {{ field: 'company', width: 180, sortable: true, filter: 'agTextColumnFilter' }},
     {{ field: 'location', width: 200, sortable: true, filter: 'agTextColumnFilter' }},
-    {{ field: 'status', width: 150, sortable: true, filter: 'agSetColumnFilter',
-       cellClassRules: {{ 'status-applied': p => p.data.status === 'applied' }},
+    {{ field: 'status', width: 180, sortable: true, filter: 'agSetColumnFilter',
+       cellClassRules: {{
+         'status-applied': p => p.data.status === 'applied',
+         'status-manual_apply': p => p.data.status === 'manual_apply'
+       }},
        valueGetter: function(p) {{
          if (p.data.status === 'applied' && p.data.applied_date) return 'applied ' + p.data.applied_date;
+         if (p.data.status === 'manual_apply') return 'manual apply';
          return p.data.status || 'not_applied';
+       }},
+       editable: true,
+       cellEditor: 'agSelectCellEditor',
+       cellEditorParams: {{
+         values: ['not_applied', 'applied', 'manual_apply', 'skipped', 'not_interested']
        }}
     }},
     {{ headerName: 'Flags', width: 160, filter: 'agTextColumnFilter',
@@ -288,6 +298,24 @@ var gridOptions = {{
   animateRows: true,
   enableCellTextSelection: true,
   ensureDomOrder: true,
+  onCellValueChanged: function(event) {{
+    if (event.colDef.field !== 'status') return;
+    var jobId = event.data.job_id;
+    var newStatus = event.newValue;
+    fetch('/api/jobs/' + encodeURIComponent(jobId) + '/status', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{status: newStatus}})
+    }}).then(function(r) {{
+      if (!r.ok) {{
+        event.node.setDataValue('status', event.oldValue);
+      }} else if (newStatus === 'applied') {{
+        event.node.setDataValue('applied_date', new Date().toISOString().slice(0, 10));
+      }}
+    }}).catch(function() {{
+      event.node.setDataValue('status', event.oldValue);
+    }});
+  }},
 }};
 
 var gridDiv = document.getElementById('jobGrid');
@@ -585,6 +613,34 @@ def apply(job_id):
 
     if result.data:
         return jsonify({"ok": True, "job_id": job_id})
+    return jsonify({"ok": False}), 404
+
+
+@app.route("/api/jobs/<job_id>/status", methods=["POST"])
+def update_job_status(job_id):
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"ok": False, "error": "No Supabase"}), 500
+
+    data = request.get_json(silent=True)
+    if not data or "status" not in data:
+        return jsonify({"ok": False, "error": "status required"}), 400
+
+    status = data["status"]
+    allowed = {"not_applied", "applied", "manual_apply", "skipped", "not_interested"}
+    if status not in allowed:
+        return jsonify({"ok": False, "error": f"Invalid status: {status}"}), 400
+
+    u = uid()
+    update_data = {"status": status}
+    if status == "applied":
+        update_data["applied_date"] = str(date.today())
+    elif status != "applied":
+        update_data["applied_date"] = None
+
+    result = cloud.table("job_listings").update(update_data).eq("job_id", job_id).eq("user_id", u).execute()
+    if result.data:
+        return jsonify({"ok": True, "job_id": job_id, "status": status})
     return jsonify({"ok": False}), 404
 
 
