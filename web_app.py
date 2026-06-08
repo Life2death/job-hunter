@@ -712,7 +712,7 @@ def admin_panel():
         return f"DB Error: {e}", 500
 
     try:
-        html = admin_html(pending_resp.get("data", []), approved_resp.get("data", []))
+        html = admin_html(pending_resp.data if pending_resp else [], approved_resp.data if approved_resp else [])
     except Exception as e:
         return f"Template Error: {e}\n{traceback.format_exc()}", 500
 
