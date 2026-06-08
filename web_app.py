@@ -210,8 +210,16 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
 </head>
 <body>
 {tabs_html("jobs")}
-<h1>Job Queue</h1>
-{hint}
+<div style="display:flex;justify-content:space-between;align-items:flex-start;">
+  <div>
+    <h1>Job Queue</h1>
+    {hint}
+  </div>
+  <div style="text-align:right;flex-shrink:0;">
+    <div id="count-badge" style="font-size:13px;color:#666;white-space:nowrap;"></div>
+  </div>
+</div>
+<div id="load-info" style="font-size:12px;color:#999;margin-bottom:8px;text-align:right;"></div>
 <div id="jobGrid" class="ag-theme-alpine"></div>
 <script>
 var gridOptions = {{
@@ -285,10 +293,52 @@ var gridOptions = {{
 var gridDiv = document.getElementById('jobGrid');
 new agGrid.Grid(gridDiv, gridOptions);
 
-fetch('{api_url}')
+// Count badge
+fetch('/api/jobs/count')
   .then(function(r) {{ return r.json(); }})
-  .then(function(data) {{ gridOptions.api.setRowData(data); }})
+  .then(function(d) {{
+    document.getElementById('count-badge').textContent = d.unapplied + ' jobs to apply';
+  }})
+  .catch(function() {{}});
+
+// Lazy load: first 200 rows instantly, rest in background
+var baseUrl = '{api_url}';
+var sep = baseUrl.indexOf('?') > -1 ? '&' : '?';
+var allRows = [];
+var totalJobs = 0;
+
+fetch(baseUrl + sep + 'limit=200&offset=0')
+  .then(function(r) {{ return r.json(); }})
+  .then(function(data) {{
+    allRows = data.rows;
+    totalJobs = data.total;
+    gridOptions.api.setRowData(allRows);
+    if (allRows.length < totalJobs) fetchRemaining();
+  }})
   .catch(function(e) {{ console.error('Failed to load jobs', e); }});
+
+function fetchRemaining() {{
+  var loaded = allRows.length;
+  if (loaded >= totalJobs) {{
+    document.getElementById('load-info').textContent = '';
+    return;
+  }}
+  var remaining = totalJobs - loaded;
+  document.getElementById('load-info').textContent = 'Loading ' + remaining.toLocaleString() + ' more jobs...';
+  var page = Math.min(1000, remaining);
+  fetch(baseUrl + sep + 'limit=' + page + '&offset=' + loaded)
+    .then(function(r) {{ return r.json(); }})
+    .then(function(data) {{
+      allRows = allRows.concat(data.rows);
+      if (allRows.length >= totalJobs) {{
+        document.getElementById('load-info').textContent = '';
+        gridOptions.api.setRowData(allRows);
+      }} else {{
+        fetchRemaining();
+      }}
+    }})
+    .catch(function(e) {{ console.error('Failed to load remaining jobs', e); document.getElementById('load-info').textContent = ''; }});
+}}
 </script>
 </body>
 </html>"""
@@ -386,32 +436,50 @@ def api_jobs():
     min_fit = request.args.get("min_fit", 0, type=int)
     applied_date = request.args.get("applied_date")
 
-    def build_query():
-        q = cloud.table("job_listings").select("*").eq("user_id", u)
-        if track:
-            q = q.eq("track", track)
-        if portal:
-            q = q.eq("portal", portal)
-        if status:
-            q = q.eq("status", status)
-        if applied_date:
-            q = q.eq("applied_date", applied_date)
-        return q.gte("fit", min_fit).order("fit", desc=True)
+    def filtered_query(sel="*", with_count=False):
+        q = cloud.table("job_listings").select(sel, count="exact" if with_count else None)
+        q = q.eq("user_id", u)
+        if track: q = q.eq("track", track)
+        if portal: q = q.eq("portal", portal)
+        if status: q = q.eq("status", status)
+        if applied_date: q = q.eq("applied_date", applied_date)
+        return q.gte("fit", min_fit)
+
+    limit = request.args.get("limit", type=int)
+    offset = request.args.get("offset", 0, type=int)
+
+    if limit is not None:
+        batch = filtered_query().order("fit", desc=True).range(offset, offset + limit - 1).execute()
+        cnt = filtered_query("job_id", with_count=True).execute()
+        total = getattr(cnt, 'count', 0) or 0
+        return jsonify({"rows": batch.data or [], "total": total})
 
     page_size = 1000
     all_jobs = []
-    offset = 0
+    off = 0
     while True:
-        batch = build_query().range(offset, offset + page_size - 1).execute()
+        batch = filtered_query().order("fit", desc=True).range(off, off + page_size - 1).execute()
         data = batch.data or []
         if not data:
             break
         all_jobs.extend(data)
         if len(data) < page_size:
             break
-        offset += page_size
-
+        off += page_size
     return jsonify(all_jobs)
+
+
+@app.route("/api/jobs/count")
+def api_jobs_count():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"error": "Supabase not configured"}), 500
+    u = uid()
+    total_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).execute()
+    applied_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).eq("status", "applied").execute()
+    total = getattr(total_resp, 'count', 0) or 0
+    applied = getattr(applied_resp, 'count', 0) or 0
+    return jsonify({"total": total, "applied": applied, "unapplied": total - applied})
 
 
 @app.route("/api/jobs/stats")
