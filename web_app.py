@@ -709,9 +709,14 @@ def admin_panel():
         pending_resp = client.table("profiles").select("*").eq("approved", False).order("created_at").execute()
         approved_resp = client.table("profiles").select("*").eq("approved", True).order("created_at").limit(50).execute()
     except Exception as e:
-        return f"Admin error: {str(e)}\n{traceback.format_exc()}", 500
+        return f"DB Error: {e}", 500
 
-    return admin_html(pending_resp.get("data", []), approved_resp.get("data", []))
+    try:
+        html = admin_html(pending_resp.get("data", []), approved_resp.get("data", []))
+    except Exception as e:
+        return f"Template Error: {e}\n{traceback.format_exc()}", 500
+
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/admin/approve/<email>", methods=["POST"])
