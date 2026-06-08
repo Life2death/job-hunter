@@ -9,6 +9,7 @@ from datetime import date, timedelta
 sys.stdout = sys.stderr
 TODAY = date.today()
 
+import requests as http_requests
 from flask import Flask, jsonify, request, session, redirect
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -506,6 +507,18 @@ def signup():
         result = cloud.auth.sign_up({"email": email, "password": password})
     except Exception as e:
         return f"Signup failed: {str(e)}", 400
+
+    if SUPABASE_SERVICE_KEY and result.user:
+        try:
+            headers = {
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            }
+            url = f"{SUPABASE_URL}/auth/v1/admin/users/{result.user.id}"
+            http_requests.put(url, json={"email_confirm": True}, headers=headers, timeout=10)
+        except Exception:
+            pass
 
     admin = get_admin_cloud()
     client = admin or cloud
