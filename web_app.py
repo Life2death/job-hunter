@@ -147,7 +147,8 @@ PENDING_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 def tabs_html(active="dashboard"):
     dash_cls = "tab tab-active" if active == "dashboard" else "tab"
     jobs_cls = "tab tab-active" if active == "jobs" else "tab"
-    admin_link = '<a class="tab" href="/admin">Admin</a>' if session.get("is_admin") else ""
+    admin_cls = "tab tab-active" if active == "admin" else "tab"
+    admin_link = f'<a class="{admin_cls}" href="/admin">Admin</a>' if session.get("is_admin") else ""
     return f"""<div class="tabs">
   <a class="{dash_cls}" href="/">Dashboard</a>
   <a class="{jobs_cls}" href="/jobs">Job Queue</a>
@@ -243,12 +244,21 @@ var gridOptions = {{
          a.target = '_blank';
          a.textContent = (params.value || '').slice(0, 60) + ((params.value || '').length > 60 ? '...' : '');
          a.className = 'job-link';
-         a.addEventListener('click', function(e) {{
-           e.preventDefault();
-           fetch('/apply/' + encodeURIComponent(params.data.job_id), {{ method: 'POST' }})
-             .then(function() {{ window.open(params.value, '_blank'); }})
-             .catch(function() {{ window.open(params.value, '_blank'); }});
-         }});
+          a.addEventListener('click', function(e) {{
+            e.preventDefault();
+            var ___d = params.data;
+            fetch('/apply/' + encodeURIComponent(___d.job_id), {{ method: 'POST' }})
+              .then(function(r) {{
+                if (r.ok) {{
+                  var upd = Object.assign({{}}, ___d);
+                  upd.status = 'applied';
+                  upd.applied_date = new Date().toISOString().slice(0, 10);
+                  params.api.applyTransaction({{ update: [upd] }});
+                }}
+                window.open(params.value, '_blank');
+              }})
+              .catch(function() {{ window.open(params.value, '_blank'); }});
+          }});
          return a;
        }}
     }}
@@ -680,7 +690,7 @@ def admin_html(pending, approved):
   .empty {{ color:#999; font-size:13px; padding:12px 0; }}
   a {{ color:#1565c0; }}
 </style></head><body>
-{tabs_html("jobs")}
+{tabs_html("admin")}
 <div class="section">
   <h2>Pending Approval</h2>
   <table><thead><tr><th>Email</th><th>Signed Up</th><th>Action</th></tr></thead>
