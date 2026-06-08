@@ -239,10 +239,10 @@ var gridOptions = {{
          'status-applied': p => p.data.status === 'applied',
          'status-manual_apply': p => p.data.status === 'manual_apply'
        }},
-       valueGetter: function(p) {{
-         if (p.data.status === 'applied' && p.data.applied_date) return 'applied ' + p.data.applied_date;
-         if (p.data.status === 'manual_apply') return 'manual apply';
-         return p.data.status || 'not_applied';
+       valueFormatter: function(p) {{
+         if (p.value === 'applied' && p.data.applied_date) return 'applied ' + p.data.applied_date;
+         if (p.value === 'manual_apply') return 'manual apply';
+         return p.value || 'not_applied';
        }},
        editable: true,
        cellEditor: 'agSelectCellEditor',
