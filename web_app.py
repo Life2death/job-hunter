@@ -257,18 +257,32 @@ def api_jobs():
     min_fit = request.args.get("min_fit", 0, type=int)
     applied_date = request.args.get("applied_date")
 
-    query = cloud.table("job_listings").select("*")
-    if track:
-        query = query.eq("track", track)
-    if portal:
-        query = query.eq("portal", portal)
-    if status:
-        query = query.eq("status", status)
-    if applied_date:
-        query = query.eq("applied_date", applied_date)
-    query = query.gte("fit", min_fit).order("fit", desc=True).range(0, 100000)
-    result = query.execute()
-    return jsonify(result.data if result else [])
+    def build_query():
+        q = cloud.table("job_listings").select("*")
+        if track:
+            q = q.eq("track", track)
+        if portal:
+            q = q.eq("portal", portal)
+        if status:
+            q = q.eq("status", status)
+        if applied_date:
+            q = q.eq("applied_date", applied_date)
+        return q.gte("fit", min_fit).order("fit", desc=True)
+
+    page_size = 1000
+    all_jobs = []
+    offset = 0
+    while True:
+        batch = build_query().range(offset, offset + page_size - 1).execute()
+        data = batch.data or []
+        if not data:
+            break
+        all_jobs.extend(data)
+        if len(data) < page_size:
+            break
+        offset += page_size
+
+    return jsonify(all_jobs)
 
 
 @app.route("/api/jobs/stats")
