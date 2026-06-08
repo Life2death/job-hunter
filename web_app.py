@@ -1,42 +1,142 @@
 """
 web_app.py
-Flask web service for interactive job report.
-Serves the ranked job table with click-to-apply tracking.
-Deployed on Render free tier. Reads/writes to Supabase.
+Flask web service for interactive job report with multi-user auth.
+Serves dashboard + AG Grid job table with click-to-apply tracking.
+Users sign up with email/password, admin approves access.
 """
-
 import os, sys
 from datetime import date, timedelta
-
-sys.stdout = sys.stderr  # no encoding issues on Render
+sys.stdout = sys.stderr
 TODAY = date.today()
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session, redirect
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+
 _cloud = None
+_admin_cloud = None
 
 def get_cloud():
     global _cloud
-    if _cloud is None:
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            return None
+    if _cloud is None and SUPABASE_URL and SUPABASE_KEY:
         try:
             from supabase import create_client
             _cloud = create_client(SUPABASE_URL, SUPABASE_KEY)
         except ImportError:
-            return None
+            pass
     return _cloud
+
+def get_admin_cloud():
+    global _admin_cloud
+    if _admin_cloud is None and SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        try:
+            from supabase import create_client
+            _admin_cloud = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        except ImportError:
+            pass
+    return _admin_cloud
+
+def uid():
+    return session.get("email", "")
+
+PUBLIC_ENDPOINTS = ["login", "signup"]
+
+@app.before_request
+def check_auth():
+    if request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if "user_id" not in session:
+        return redirect("/login")
+
+AUTH_CSS = """<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 system-ui, sans-serif; background: #f5f5f5; min-height: 100vh;
+         display: flex; align-items: center; justify-content: center; }
+  .auth-box { background: #fff; padding: 32px; border-radius: 8px; box-shadow: 0 1px 8px rgba(0,0,0,.1);
+              width: 360px; }
+  .auth-box h1 { font-size: 20px; margin-bottom: 20px; text-align: center; }
+  .auth-box label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .auth-box input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+                    margin-bottom: 14px; font-size: 14px; }
+  .auth-box button { width: 100%; padding: 10px; background: #1565c0; color: #fff; border: none;
+                     border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .auth-box button:hover { background: #0d47a1; }
+  .auth-box .link { text-align: center; margin-top: 14px; font-size: 13px; }
+  .auth-box .error { color: #d32f2f; font-size: 13px; margin-bottom: 10px; text-align: center; }
+</style>"""
+
+LOGIN_FORM = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Login - Job Hunter</title>""" + AUTH_CSS + """</head><body>
+<div class="auth-box">
+  <h1>Job Hunter</h1>
+  <p id="error" class="error"></p>
+  <form method="POST" onsubmit="return validate()">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required>
+    <button type="submit">Log In</button>
+  </form>
+  <div class="link">Don't have an account? <a href="/signup">Sign up</a></div>
+</div>
+<script>
+function validate() {
+  var e = document.getElementById('email').value.trim();
+  var p = document.getElementById('password').value;
+  if (!e || !p) { document.getElementById('error').textContent = 'Email and password required'; return false; }
+  return true;
+}
+</script>
+</body></html>"""
+
+SIGNUP_FORM = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Sign Up - Job Hunter</title>""" + AUTH_CSS + """</head><body>
+<div class="auth-box">
+  <h1>Create Account</h1>
+  <p id="error" class="error"></p>
+  <form method="POST" onsubmit="return validate()">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required>
+    <label for="password">Password (min 6 chars)</label>
+    <input id="password" name="password" type="password" minlength="6" required>
+    <button type="submit">Sign Up</button>
+  </form>
+  <div class="link">Already have an account? <a href="/login">Log in</a></div>
+</div>
+<script>
+function validate() {
+  var e = document.getElementById('email').value.trim();
+  var p = document.getElementById('password').value;
+  if (!e || !p) { document.getElementById('error').textContent = 'Email and password required'; return false; }
+  if (p.length < 6) { document.getElementById('error').textContent = 'Password must be at least 6 characters'; return false; }
+  return true;
+}
+</script>
+</body></html>"""
+
+PENDING_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Pending Approval - Job Hunter</title>""" + AUTH_CSS + """</head><body>
+<div class="auth-box" style="text-align:center">
+  <h1>Pending Approval</h1>
+  <p style="margin:16px 0;color:#666">Your account is waiting for admin approval.<br>Check back later.</p>
+  <a href="/login" style="color:#1565c0;">Back to Login</a>
+</div></body></html>"""
 
 
 def tabs_html(active="dashboard"):
     dash_cls = "tab tab-active" if active == "dashboard" else "tab"
     jobs_cls = "tab tab-active" if active == "jobs" else "tab"
+    admin_link = '<a class="tab" href="/admin">Admin</a>' if session.get("is_admin") else ""
     return f"""<div class="tabs">
   <a class="{dash_cls}" href="/">Dashboard</a>
   <a class="{jobs_cls}" href="/jobs">Job Queue</a>
+  {admin_link}
+  <span style="margin-left:auto;font-size:12px;color:#999;padding:8px 0">{session.get("email","")} <a href="/logout" style="color:#999;text-decoration:none;">logout</a></span>
 </div>"""
 
 BASE_CSS = """<style>
@@ -245,12 +345,15 @@ fetch('/api/jobs/stats')
 </html>"""
 
 
+# ─── API ────────────────────────────────────────────────
+
 @app.route("/api/jobs")
 def api_jobs():
     cloud = get_cloud()
     if not cloud:
         return jsonify({"error": "Supabase not configured"}), 500
 
+    u = uid()
     track = request.args.get("track")
     portal = request.args.get("portal")
     status = request.args.get("status")
@@ -258,7 +361,7 @@ def api_jobs():
     applied_date = request.args.get("applied_date")
 
     def build_query():
-        q = cloud.table("job_listings").select("*")
+        q = cloud.table("job_listings").select("*").eq("user_id", u)
         if track:
             q = q.eq("track", track)
         if portal:
@@ -291,10 +394,11 @@ def api_jobs_stats():
     if not cloud:
         return jsonify({"error": "Supabase not configured"}), 500
 
+    u = uid()
     today_str = str(date.today())
     yesterday_str = str(date.today() - timedelta(days=1))
 
-    result = cloud.table("job_listings").select("applied_date, company, status").eq("status", "applied").execute()
+    result = cloud.table("job_listings").select("applied_date, company, status").eq("status", "applied").eq("user_id", u).execute()
     jobs = result.data if result else []
 
     today_count = sum(1 for j in jobs if j.get("applied_date") == today_str)
@@ -328,6 +432,35 @@ def api_jobs_stats():
     })
 
 
+@app.route("/apply/<job_id>", methods=["POST"])
+def apply(job_id):
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"ok": False, "error": "No Supabase"}), 500
+
+    u = uid()
+    today = str(date.today())
+    result = cloud.table("job_listings").update({
+        "status": "applied",
+        "applied_date": today,
+    }).eq("job_id", job_id).eq("user_id", u).execute()
+
+    if result.data:
+        return jsonify({"ok": True, "job_id": job_id})
+    return jsonify({"ok": False}), 404
+
+
+@app.route("/status")
+def status_summary():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"error": "No Supabase"}), 500
+    result = cloud.table("job_listings").select("track, portal, status, count").eq("user_id", uid()).execute()
+    return jsonify(result.data or [])
+
+
+# ─── Page routes ─────────────────────────────────────────
+
 @app.route("/")
 def dashboard():
     html = generate_dashboard_html()
@@ -350,31 +483,187 @@ def report():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-@app.route("/apply/<job_id>", methods=["POST"])
-def apply(job_id):
+# ─── Auth routes ─────────────────────────────────────────
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "GET":
+        return SIGNUP_FORM
+
+    email = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password", "")
+
+    if not email or not password:
+        return "Email and password required", 400
+    if len(password) < 6:
+        return "Password must be at least 6 characters", 400
+
     cloud = get_cloud()
     if not cloud:
-        return jsonify({"ok": False, "error": "No Supabase"}), 500
+        return "Supabase not configured", 500
 
-    today = str(date.today())
-    result = cloud.table("job_listings").update({
-        "status": "applied",
-        "applied_date": today,
-    }).eq("job_id", job_id).execute()
+    try:
+        result = cloud.auth.sign_up({"email": email, "password": password})
+    except Exception as e:
+        return f"Signup failed: {str(e)}", 400
 
-    if result.data:
-        return jsonify({"ok": True, "job_id": job_id})
-    return jsonify({"ok": False}), 404
+    admin = get_admin_cloud()
+    client = admin or cloud
+    try:
+        client.table("profiles").insert({"email": email, "approved": False}).execute()
+    except Exception:
+        pass
+
+    return """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Signed Up - Job Hunter</title>""" + AUTH_CSS + """</head><body>
+<div class="auth-box" style="text-align:center">
+  <h1>Account Created</h1>
+  <p style="margin:16px 0;color:#666">You'll need admin approval before you can log in.</p>
+  <a href="/login" style="color:#1565c0;">Go to Login</a>
+</div></body></html>"""
 
 
-@app.route("/status")
-def status_summary():
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        if "user_id" in session:
+            return redirect("/")
+        return LOGIN_FORM
+
+    email = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password", "")
+
     cloud = get_cloud()
     if not cloud:
-        return jsonify({"error": "No Supabase"}), 500
+        return "Supabase not configured", 500
 
-    result = cloud.table("job_listings").select("track, portal, status, count").execute()
-    return jsonify(result.data or [])
+    try:
+        result = cloud.auth.sign_in_with_password({"email": email, "password": password})
+    except Exception as e:
+        return f"Login failed: {str(e)}", 401
+
+    user = result.user
+
+    try:
+        profile = cloud.table("profiles").select("approved").eq("email", email).execute()
+        approved = profile.data and profile.data[0].get("approved")
+    except Exception:
+        approved = False
+
+    if not approved:
+        if email != ADMIN_EMAIL:
+            cloud.auth.sign_out()
+            return PENDING_PAGE, 403
+        admin = get_admin_cloud()
+        if admin:
+            try:
+                prof = admin.table("profiles").select("*").eq("email", email).execute()
+                if prof.data:
+                    admin.table("profiles").update({"approved": True}).eq("email", email).execute()
+                else:
+                    admin.table("profiles").insert({"email": email, "approved": True}).execute()
+            except Exception:
+                pass
+        approved = True
+
+    session["user_id"] = user.id
+    session["email"] = email
+    session["is_admin"] = email == ADMIN_EMAIL
+    return redirect("/")
+
+
+@app.route("/logout")
+def logout():
+    cloud = get_cloud()
+    if cloud:
+        try:
+            cloud.auth.sign_out()
+        except Exception:
+            pass
+    session.clear()
+    return redirect("/login")
+
+
+# ─── Admin routes ────────────────────────────────────────
+
+def admin_html(pending, approved):
+    pending_rows = ""
+    for p in (pending or []):
+        pending_rows += f"""<tr>
+  <td>{p.get("email","")}</td>
+  <td>{str(p.get("created_at",""))[:19]}</td>
+  <td><form method="POST" action="/admin/approve/{p.get("email","")}" style="display:inline"><button class="btn-approve">Approve</button></form></td>
+</tr>"""
+
+    approved_rows = ""
+    for p in (approved or []):
+        approved_rows += f"<tr><td>{p.get('email','')}</td><td>{str(p.get('created_at',''))[:19]}</td></tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Admin - Job Hunter</title>
+<style>
+  * {{ box-sizing:border-box;margin:0;padding:0; }}
+  body {{ font:14px/1.5 system-ui,sans-serif; background:#f5f5f5; padding:20px; }}
+  h1 {{ margin-bottom:16px; }}
+  .section {{ background:#fff; border-radius:8px; padding:16px 20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); }}
+  .section h2 {{ font-size:16px; margin-bottom:12px; }}
+  table {{ width:100%; border-collapse:collapse; }}
+  th,td {{ padding:8px 10px; text-align:left; border-bottom:1px solid #eee; }}
+  th {{ font-size:12px; text-transform:uppercase; color:#666; }}
+  .btn-approve {{ padding:4px 14px; background:#1a7d1a; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:13px; }}
+  .btn-approve:hover {{ background:#145214; }}
+  .empty {{ color:#999; font-size:13px; padding:12px 0; }}
+  a {{ color:#1565c0; }}
+</style></head><body>
+{tabs_html("jobs")}
+<div class="section">
+  <h2>Pending Approval</h2>
+  <table><thead><tr><th>Email</th><th>Signed Up</th><th>Action</th></tr></thead>
+  <tbody>{"<tr><td colspan=3 class=empty>No pending users</td></tr>" if not pending_rows else pending_rows}</tbody></table>
+</div>
+<div class="section">
+  <h2>Approved Users</h2>
+  <table><thead><tr><th>Email</th><th>Approved</th></tr></thead>
+  <tbody>{"<tr><td colspan=2 class=empty>No approved users</td></tr>" if not approved_rows else approved_rows}</tbody></table>
+</div>
+</body></html>"""
+
+
+@app.route("/admin")
+def admin_panel():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+
+    admin = get_admin_cloud()
+    client = admin or get_cloud()
+    if not client:
+        return "Supabase not configured", 500
+
+    try:
+        pending_resp = client.table("profiles").select("*").eq("approved", False).order("created_at").execute()
+        approved_resp = client.table("profiles").select("*").eq("approved", True).order("created_at").limit(50).execute()
+    except Exception:
+        pending_resp = {"data": []}
+        approved_resp = {"data": []}
+
+    return admin_html(pending_resp.get("data", []), approved_resp.get("data", []))
+
+
+@app.route("/admin/approve/<email>", methods=["POST"])
+def approve_user(email):
+    if not session.get("is_admin"):
+        return jsonify({"ok": False}), 403
+
+    admin = get_admin_cloud()
+    if not admin:
+        return jsonify({"ok": False, "error": "Service key not configured"}), 500
+
+    try:
+        admin.table("profiles").update({"approved": True}).eq("email", email).execute()
+    except Exception:
+        pass
+    return redirect("/admin")
 
 
 if __name__ == "__main__":
