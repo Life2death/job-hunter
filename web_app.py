@@ -370,6 +370,9 @@ def generate_dashboard_html():
   .week-day {{ padding: 8px; border-radius: 6px; background: #f0f4ff; }}
   .week-day-name {{ font-size: 11px; text-transform: uppercase; color: #666; }}
   .week-day-num {{ font-size: 24px; font-weight: 700; color: #1565c0; }}
+  .week-day-num a {{ color: #1565c0; text-decoration:none; }}
+  .week-day-num a:hover {{ text-decoration:underline; }}
+  .track-breakdown {{ margin-top:4px; border-top:1px solid #d0d8f0; padding-top:4px; font-size:11px; line-height:1.5; color:#555; }}
 </style>
 </head>
 <body>
@@ -379,6 +382,9 @@ def generate_dashboard_html():
   <div class="cards">
     <div class="card"><div class="card-count" id="countToday">-</div><div class="card-label">Applied Today</div></div>
     <div class="card"><div class="card-count" id="countYesterday">-</div><div class="card-label">Applied Yesterday</div></div>
+    <div class="card"><div class="card-count" id="addedToday">-</div><div class="card-label">Added Today</div></div>
+    <div class="card"><div class="card-count" id="addedWeek">-</div><div class="card-label">Added This Week</div></div>
+    <div class="card"><div class="card-count" id="addedMonth">-</div><div class="card-label">Added This Month</div></div>
   </div>
   <div class="section">
     <h2>This Week (Sun &ndash; Sat)</h2>
@@ -398,13 +404,21 @@ fetch('/api/jobs/stats')
       '<a href="/jobs?status=applied&applied_date=' + stats.today_date + '" target="_blank">' + stats.today + '</a>';
     document.getElementById('countYesterday').innerHTML =
       '<a href="/jobs?status=applied&applied_date=' + stats.yesterday_date + '" target="_blank">' + stats.yesterday + '</a>';
+    document.getElementById('addedToday').textContent = stats.added.today;
+    document.getElementById('addedWeek').textContent = stats.added.week;
+    document.getElementById('addedMonth').textContent = stats.added.month;
 
     var weekHtml = '';
     var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     stats.week.forEach(function(d, i) {{
+      var tracksHtml = '';
+      var entries = Object.entries(d.tracks || {{}}).sort(function(a, b) {{ return b[1] - a[1]; }});
+      entries.forEach(function(t) {{ tracksHtml += '<div>' + t[0] + ' ' + t[1] + '</div>'; }});
+      if (!entries.length) tracksHtml = '<div style="color:#bbb;">&ndash;</div>';
       weekHtml += '<div class="week-day"><div class="week-day-name">' + dayNames[i] + '</div>'
                + '<div class="week-day-num"><a href="/jobs?status=applied&applied_date=' + d.date + '" target="_blank">'
-               + d.count + '</a></div></div>';
+               + d.count + '</a></div>'
+               + '<div class="track-breakdown">' + tracksHtml + '</div></div>';
     }});
     document.getElementById('weekGrid').innerHTML = weekHtml;
 
@@ -492,21 +506,37 @@ def api_jobs_stats():
     today_str = str(date.today())
     yesterday_str = str(date.today() - timedelta(days=1))
 
-    result = cloud.table("job_listings").select("applied_date, company, status").eq("status", "applied").eq("user_id", u).execute()
-    jobs = result.data if result else []
+    # Applied jobs with track for breakdown
+    applied_resp = cloud.table("job_listings").select("applied_date, company, track, status").eq("status", "applied").eq("user_id", u).execute()
+    applied = applied_resp.data if applied_resp else []
 
-    today_count = sum(1 for j in jobs if j.get("applied_date") == today_str)
-    yesterday_count = sum(1 for j in jobs if j.get("applied_date") == yesterday_str)
+    today_count = sum(1 for j in applied if j.get("applied_date") == today_str)
+    yesterday_count = sum(1 for j in applied if j.get("applied_date") == yesterday_str)
 
     days_since_sunday = (date.today().weekday() + 1) % 7
     sunday = date.today() - timedelta(days=days_since_sunday)
+
+    # Track counters per day
+    track_by_date = {}
+    for j in applied:
+        ad = j.get("applied_date", "")
+        tr = j.get("track", "?") or "?"
+        if ad:
+            track_by_date.setdefault(ad, {})
+            track_by_date[ad][tr] = track_by_date[ad].get(tr, 0) + 1
+
     week = []
     for i in range(7):
         d = sunday + timedelta(days=i)
-        week.append({"date": str(d), "count": sum(1 for j in jobs if j.get("applied_date") == str(d))})
+        ds = str(d)
+        week.append({
+            "date": ds,
+            "count": sum(1 for j in applied if j.get("applied_date") == ds),
+            "tracks": track_by_date.get(ds, {}),
+        })
 
     companies_by_date = {}
-    for j in jobs:
+    for j in applied:
         ad = j.get("applied_date", "")
         if ad and ad >= str(date.today() - timedelta(days=14)):
             companies_by_date.setdefault(ad, set()).add(j.get("company", ""))
@@ -516,6 +546,15 @@ def api_jobs_stats():
         for d, c in sorted(companies_by_date.items(), reverse=True)
     ]
 
+    # All jobs for added counts (by imported_date)
+    all_resp = cloud.table("job_listings").select("imported_date").eq("user_id", u).execute()
+    all_rows = all_resp.data if all_resp else []
+    imported_dates = [j.get("imported_date", "") for j in all_rows if j.get("imported_date")]
+
+    added_today = sum(1 for d in imported_dates if d == today_str)
+    added_week = sum(1 for d in imported_dates if sunday <= date.fromisoformat(d) <= date.today())
+    added_month = sum(1 for d in imported_dates if d.startswith(today_str[:7]))
+
     return jsonify({
         "today": today_count,
         "today_date": today_str,
@@ -523,6 +562,11 @@ def api_jobs_stats():
         "yesterday_date": yesterday_str,
         "week": week,
         "companies_per_day": companies_per_day,
+        "added": {
+            "today": added_today,
+            "week": added_week,
+            "month": added_month,
+        },
     })
 
 
