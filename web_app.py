@@ -45,6 +45,21 @@ def get_admin_cloud():
 def uid():
     return session.get("email", "")
 
+def auto_confirm_email(user_id):
+    if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
+        return False
+    try:
+        headers = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+        }
+        url = f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}"
+        r = http_requests.put(url, json={"email_confirm": True}, headers=headers, timeout=10)
+        return r.ok
+    except Exception:
+        return False
+
 PUBLIC_ENDPOINTS = ["login", "signup"]
 
 @app.before_request
@@ -508,17 +523,8 @@ def signup():
     except Exception as e:
         return f"Signup failed: {str(e)}", 400
 
-    if SUPABASE_SERVICE_KEY and result.user:
-        try:
-            headers = {
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                "Content-Type": "application/json",
-            }
-            url = f"{SUPABASE_URL}/auth/v1/admin/users/{result.user.id}"
-            http_requests.put(url, json={"email_confirm": True}, headers=headers, timeout=10)
-        except Exception:
-            pass
+    if result.user:
+        auto_confirm_email(result.user.id)
 
     admin = get_admin_cloud()
     client = admin or cloud
@@ -534,6 +540,42 @@ def signup():
   <p style="margin:16px 0;color:#666">You'll need admin approval before you can log in.</p>
   <a href="/login" style="color:#1565c0;">Go to Login</a>
 </div></body></html>"""
+
+
+def handle_login(result, email):
+    user = result.user
+    cloud = get_cloud()
+
+    try:
+        profile = cloud.table("profiles").select("approved").eq("email", email).execute()
+        approved = profile.data and profile.data[0].get("approved")
+    except Exception:
+        approved = False
+
+    if not approved:
+        if email != ADMIN_EMAIL:
+            if cloud:
+                try:
+                    cloud.auth.sign_out()
+                except Exception:
+                    pass
+            return PENDING_PAGE, 403
+        admin = get_admin_cloud()
+        if admin:
+            try:
+                prof = admin.table("profiles").select("*").eq("email", email).execute()
+                if prof.data:
+                    admin.table("profiles").update({"approved": True}).eq("email", email).execute()
+                else:
+                    admin.table("profiles").insert({"email": email, "approved": True}).execute()
+            except Exception:
+                pass
+        approved = True
+
+    session["user_id"] = user.id
+    session["email"] = email
+    session["is_admin"] = email == ADMIN_EMAIL
+    return redirect("/")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -553,36 +595,45 @@ def login():
     try:
         result = cloud.auth.sign_in_with_password({"email": email, "password": password})
     except Exception as e:
+        err = str(e)
+        if "Email not confirmed" in err:
+            # Try to find and auto-confirm the user's email
+            admin = get_admin_cloud()
+            if admin:
+                try:
+                    users_resp = admin.table("profiles").select("id").eq("email", email).execute()
+                    if not users_resp.data:
+                        # Try getting user from auth admin API
+                        headers = {
+                            "apikey": SUPABASE_SERVICE_KEY,
+                            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                        }
+                        url = f"{SUPABASE_URL}/auth/v1/admin/users"
+                        resp = http_requests.get(url, headers=headers, params={"filter": email}, timeout=10)
+                        if resp.ok:
+                            users = resp.json().get("users", [])
+                            for u in users:
+                                if u.get("email") == email:
+                                    auto_confirm_email(u["id"])
+                                    break
+                except Exception:
+                    pass
+                try:
+                    result = cloud.auth.sign_in_with_password({"email": email, "password": password})
+                    return handle_login(result, email)
+                except Exception:
+                    pass
+            return """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Email Not Confirmed - Job Hunter</title>""" + AUTH_CSS + """</head><body>
+<div class="auth-box" style="text-align:center">
+  <h1>Email Not Confirmed</h1>
+  <p style="margin:16px 0;color:#666">Set <strong>SUPABASE_SERVICE_KEY</strong> in Render env vars to enable auto-confirm,<br>
+  or disable 'Confirm email' in Supabase Auth settings.</p>
+  <a href="/login" style="color:#1565c0;">Back to Login</a>
+</div></body></html>""", 403
         return f"Login failed: {str(e)}", 401
 
-    user = result.user
-
-    try:
-        profile = cloud.table("profiles").select("approved").eq("email", email).execute()
-        approved = profile.data and profile.data[0].get("approved")
-    except Exception:
-        approved = False
-
-    if not approved:
-        if email != ADMIN_EMAIL:
-            cloud.auth.sign_out()
-            return PENDING_PAGE, 403
-        admin = get_admin_cloud()
-        if admin:
-            try:
-                prof = admin.table("profiles").select("*").eq("email", email).execute()
-                if prof.data:
-                    admin.table("profiles").update({"approved": True}).eq("email", email).execute()
-                else:
-                    admin.table("profiles").insert({"email": email, "approved": True}).execute()
-            except Exception:
-                pass
-        approved = True
-
-    session["user_id"] = user.id
-    session["email"] = email
-    session["is_admin"] = email == ADMIN_EMAIL
-    return redirect("/")
+    return handle_login(result, email)
 
 
 @app.route("/logout")
