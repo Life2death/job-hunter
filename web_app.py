@@ -312,9 +312,10 @@ var gridOptions = {{
   postSortRows: function(params) {{
     var rows = params.nodes;
     rows.sort(function(a, b) {{
-      var aApplied = a.data.status === 'applied' ? 1 : 0;
-      var bApplied = b.data.status === 'applied' ? 1 : 0;
-      if (aApplied !== bApplied) return aApplied - bApplied;
+      var topStatuses = ['not_applied', 'manual_apply'];
+      var aPrio = topStatuses.includes(a.data.status) ? 0 : 1;
+      var bPrio = topStatuses.includes(b.data.status) ? 0 : 1;
+      if (aPrio !== bPrio) return aPrio - bPrio;
       return b.data.fit - a.data.fit;
     }});
   }},
