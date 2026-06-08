@@ -6,7 +6,7 @@ Deployed on Render free tier. Reads/writes to Supabase.
 """
 
 import os, sys
-from datetime import date
+from datetime import date, timedelta
 
 sys.stdout = sys.stderr  # no encoding issues on Render
 TODAY = date.today()
@@ -31,6 +31,24 @@ def get_cloud():
     return _cloud
 
 
+TABS_HTML = """<div class="tabs">
+  <a class="tab" href="/">Dashboard</a>
+  <a class="tab tab-active" href="/jobs">Job Queue</a>
+</div>"""
+
+BASE_CSS = """<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 system-ui, sans-serif; background: #f5f5f5; padding: 20px; }
+  h1 { margin-bottom: 12px; }
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #1565c0; }
+  .tab { padding: 8px 20px; text-decoration: none; color: #555; background: #eee;
+         border-radius: 4px 4px 0 0; font-weight: 600; margin-right: 4px; }
+  .tab:hover { background: #ddd; }
+  .tab-active { background: #1565c0; color: #fff; }
+  .tab-active:hover { background: #0d47a1; }
+</style>"""
+
+
 def generate_html(track="", portal="", status="", min_fit=0):
     qs_parts = []
     if track: qs_parts.append(f"track={track}")
@@ -49,11 +67,9 @@ def generate_html(track="", portal="", status="", min_fit=0):
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@30.2.1/dist/ag-grid-community.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@30.2.1/styles/ag-grid.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@30.2.1/styles/ag-theme-alpine.min.css">
+{BASE_CSS}
 <style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font: 14px/1.5 system-ui, sans-serif; background: #f5f5f5; padding: 20px; }}
-  h1 {{ margin-bottom: 12px; }}
-  #jobGrid {{ height: calc(100vh - 80px); width: 100%; }}
+  #jobGrid {{ height: calc(100vh - 120px); width: 100%; }}
   .ag-theme-alpine {{ --ag-font-size: 13px; }}
   .fit-high {{ color: #1a7d1a !important; font-weight: 700 !important; }}
   .fit-mid  {{ color: #b8860b !important; }}
@@ -65,6 +81,7 @@ def generate_html(track="", portal="", status="", min_fit=0):
 </style>
 </head>
 <body>
+{TABS_HTML}
 <h1>Job Queue</h1>
 <div id="jobGrid" class="ag-theme-alpine"></div>
 <script>
@@ -73,6 +90,7 @@ var gridOptions = {{
     {{ field: 'fit', width: 60, sortable: true, filter: 'agNumberColumnFilter',
        cellClassRules: {{ 'fit-high': p => p.value >= 60, 'fit-mid': p => p.value >= 40 }} }},
     {{ field: 'freshness', width: 90, sortable: true, filter: 'agSetColumnFilter' }},
+    {{ field: 'imported_date', width: 110, sortable: true, filter: 'agSetColumnFilter', headerName: 'Sourced' }},
     {{ field: 'track', width: 80, sortable: true, filter: 'agSetColumnFilter' }},
     {{ field: 'portal', width: 100, sortable: true, filter: 'agSetColumnFilter' }},
     {{ field: 'title', flex: 1, sortable: true, filter: 'agTextColumnFilter', minWidth: 200 }},
@@ -109,6 +127,15 @@ var gridOptions = {{
   ],
   defaultColDef: {{ resizable: true }},
   rowData: null,
+  postSortRows: function(params) {{
+    var rows = params.nodes;
+    rows.sort(function(a, b) {{
+      var aApplied = a.data.status === 'applied' ? 1 : 0;
+      var bApplied = b.data.status === 'applied' ? 1 : 0;
+      if (aApplied !== bApplied) return aApplied - bApplied;
+      return b.data.fit - a.data.fit;
+    }});
+  }},
   pagination: true,
   paginationPageSize: 200,
   paginationPageSizeSelector: [100, 200, 500],
@@ -124,6 +151,77 @@ fetch('{api_url}')
   .then(function(r) {{ return r.json(); }})
   .then(function(data) {{ gridOptions.api.setRowData(data); }})
   .catch(function(e) {{ console.error('Failed to load jobs', e); }});
+</script>
+</body>
+</html>"""
+
+
+def generate_dashboard_html():
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard - Multi Portal</title>
+{BASE_CSS}
+<style>
+  .cards {{ display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }}
+  .card {{ flex: 1; min-width: 180px; background: #fff; border-radius: 8px; padding: 20px;
+           box-shadow: 0 1px 4px rgba(0,0,0,.1); text-align: center; }}
+  .card-count {{ font-size: 36px; font-weight: 700; color: #1565c0; }}
+  .card-label {{ font-size: 13px; color: #666; margin-top: 4px; }}
+  .section {{ background: #fff; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
+              box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
+  .section h2 {{ font-size: 16px; margin-bottom: 12px; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  th, td {{ padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; }}
+  th {{ font-size: 12px; text-transform: uppercase; color: #666; }}
+  .week-grid {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; text-align: center; }}
+  .week-day {{ padding: 8px; border-radius: 6px; background: #f0f4ff; }}
+  .week-day-name {{ font-size: 11px; text-transform: uppercase; color: #666; }}
+  .week-day-num {{ font-size: 24px; font-weight: 700; color: #1565c0; }}
+</style>
+</head>
+<body>
+{TABS_HTML}
+<h1>Dashboard</h1>
+<div id="app">
+  <div class="cards">
+    <div class="card"><div class="card-count" id="countToday">-</div><div class="card-label">Applied Today</div></div>
+    <div class="card"><div class="card-count" id="countYesterday">-</div><div class="card-label">Applied Yesterday</div></div>
+  </div>
+  <div class="section">
+    <h2>This Week (Sun &ndash; Sat)</h2>
+    <div class="week-grid" id="weekGrid"></div>
+  </div>
+  <div class="section">
+    <h2>Companies Applied Per Day</h2>
+    <table><thead><tr><th>Date</th><th>Companies</th></tr></thead>
+    <tbody id="companiesBody"></tbody></table>
+  </div>
+</div>
+<script>
+fetch('/api/jobs/stats')
+  .then(function(r) {{ return r.json(); }})
+  .then(function(stats) {{
+    document.getElementById('countToday').textContent = stats.today;
+    document.getElementById('countYesterday').textContent = stats.yesterday;
+
+    var weekHtml = '';
+    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    stats.week.forEach(function(d, i) {{
+      weekHtml += '<div class="week-day"><div class="week-day-name">' + dayNames[i] + '</div>'
+               + '<div class="week-day-num">' + d.count + '</div></div>';
+    }});
+    document.getElementById('weekGrid').innerHTML = weekHtml;
+
+    var companiesHtml = '';
+    stats.companies_per_day.forEach(function(d) {{
+      companiesHtml += '<tr><td>' + d.date + '</td><td>' + d.companies.join(', ') + '</td></tr>';
+    }});
+    document.getElementById('companiesBody').innerHTML = companiesHtml;
+  }})
+  .catch(function(e) {{ console.error('Failed to load stats', e); }});
 </script>
 </body>
 </html>"""
@@ -153,7 +251,54 @@ def api_jobs():
     return jsonify(result.data if result else [])
 
 
+@app.route("/api/jobs/stats")
+def api_jobs_stats():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"error": "Supabase not configured"}), 500
+
+    today_str = str(date.today())
+    yesterday_str = str(date.today() - timedelta(days=1))
+
+    result = cloud.table("job_listings").select("applied_date, company, status").eq("status", "applied").execute()
+    jobs = result.data if result else []
+
+    today_count = sum(1 for j in jobs if j.get("applied_date") == today_str)
+    yesterday_count = sum(1 for j in jobs if j.get("applied_date") == yesterday_str)
+
+    days_since_sunday = (date.today().weekday() + 1) % 7
+    sunday = date.today() - timedelta(days=days_since_sunday)
+    week = []
+    for i in range(7):
+        d = sunday + timedelta(days=i)
+        week.append({"date": str(d), "count": sum(1 for j in jobs if j.get("applied_date") == str(d))})
+
+    companies_by_date = {}
+    for j in jobs:
+        ad = j.get("applied_date", "")
+        if ad and ad >= str(date.today() - timedelta(days=14)):
+            companies_by_date.setdefault(ad, set()).add(j.get("company", ""))
+
+    companies_per_day = [
+        {"date": d, "companies": sorted(c)}
+        for d, c in sorted(companies_by_date.items(), reverse=True)
+    ]
+
+    return jsonify({
+        "today": today_count,
+        "yesterday": yesterday_count,
+        "week": week,
+        "companies_per_day": companies_per_day,
+    })
+
+
 @app.route("/")
+def dashboard():
+    html = generate_dashboard_html()
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/jobs")
 def report():
     cloud = get_cloud()
     if not cloud:
