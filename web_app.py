@@ -49,14 +49,22 @@ BASE_CSS = """<style>
 </style>"""
 
 
-def generate_html(track="", portal="", status="", min_fit=0):
+def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
     qs_parts = []
     if track: qs_parts.append(f"track={track}")
     if portal: qs_parts.append(f"portal={portal}")
     if status: qs_parts.append(f"status={status}")
     if min_fit: qs_parts.append(f"min_fit={min_fit}")
+    if applied_date: qs_parts.append(f"applied_date={applied_date}")
     qs = "&".join(qs_parts)
     api_url = f"/api/jobs?{qs}" if qs else "/api/jobs"
+
+    hint = ""
+    if applied_date:
+        hint = f"""<div style="background:#e3f2fd;padding:8px 14px;border-radius:4px;margin-bottom:12px;font-size:13px;">
+  Showing jobs applied on <strong>{applied_date}</strong>
+  <a href="/jobs" style="margin-left:12px;color:#1565c0;">Clear filter</a>
+</div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -83,6 +91,7 @@ def generate_html(track="", portal="", status="", min_fit=0):
 <body>
 {TABS_HTML}
 <h1>Job Queue</h1>
+{hint}
 <div id="jobGrid" class="ag-theme-alpine"></div>
 <script>
 var gridOptions = {{
@@ -168,7 +177,9 @@ def generate_dashboard_html():
   .cards {{ display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }}
   .card {{ flex: 1; min-width: 180px; background: #fff; border-radius: 8px; padding: 20px;
            box-shadow: 0 1px 4px rgba(0,0,0,.1); text-align: center; }}
-  .card-count {{ font-size: 36px; font-weight: 700; color: #1565c0; }}
+    .card-count {{ font-size: 36px; font-weight: 700; }}
+    .card-count a {{ color: #1565c0; text-decoration: none; }}
+    .card-count a:hover {{ text-decoration: underline; }}
   .card-label {{ font-size: 13px; color: #666; margin-top: 4px; }}
   .section {{ background: #fff; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
               box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
@@ -204,20 +215,24 @@ def generate_dashboard_html():
 fetch('/api/jobs/stats')
   .then(function(r) {{ return r.json(); }})
   .then(function(stats) {{
-    document.getElementById('countToday').textContent = stats.today;
-    document.getElementById('countYesterday').textContent = stats.yesterday;
+    document.getElementById('countToday').innerHTML =
+      '<a href="/jobs?status=applied&applied_date=' + stats.today_date + '" target="_blank">' + stats.today + '</a>';
+    document.getElementById('countYesterday').innerHTML =
+      '<a href="/jobs?status=applied&applied_date=' + stats.yesterday_date + '" target="_blank">' + stats.yesterday + '</a>';
 
     var weekHtml = '';
     var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     stats.week.forEach(function(d, i) {{
       weekHtml += '<div class="week-day"><div class="week-day-name">' + dayNames[i] + '</div>'
-               + '<div class="week-day-num">' + d.count + '</div></div>';
+               + '<div class="week-day-num"><a href="/jobs?status=applied&applied_date=' + d.date + '" target="_blank">'
+               + d.count + '</a></div></div>';
     }});
     document.getElementById('weekGrid').innerHTML = weekHtml;
 
     var companiesHtml = '';
     stats.companies_per_day.forEach(function(d) {{
-      companiesHtml += '<tr><td>' + d.date + '</td><td>' + d.companies.join(', ') + '</td></tr>';
+      companiesHtml += '<tr><td><a href="/jobs?status=applied&applied_date=' + d.date + '" target="_blank">'
+                    + d.date + '</a></td><td>' + d.companies.join(', ') + '</td></tr>';
     }});
     document.getElementById('companiesBody').innerHTML = companiesHtml;
   }})
@@ -237,6 +252,7 @@ def api_jobs():
     portal = request.args.get("portal")
     status = request.args.get("status")
     min_fit = request.args.get("min_fit", 0, type=int)
+    applied_date = request.args.get("applied_date")
 
     query = cloud.table("job_listings").select("*")
     if track:
@@ -245,6 +261,8 @@ def api_jobs():
         query = query.eq("portal", portal)
     if status:
         query = query.eq("status", status)
+    if applied_date:
+        query = query.eq("applied_date", applied_date)
     query = query.gte("fit", min_fit).order("fit", desc=True)
 
     result = query.execute()
@@ -286,7 +304,9 @@ def api_jobs_stats():
 
     return jsonify({
         "today": today_count,
+        "today_date": today_str,
         "yesterday": yesterday_count,
+        "yesterday_date": yesterday_str,
         "week": week,
         "companies_per_day": companies_per_day,
     })
@@ -308,8 +328,9 @@ def report():
     portal = request.args.get("portal", "")
     status = request.args.get("status", "")
     min_fit = request.args.get("min_fit", 0, type=int)
+    applied_date = request.args.get("applied_date", "")
 
-    html = generate_html(track=track, portal=portal, status=status, min_fit=min_fit)
+    html = generate_html(track=track, portal=portal, status=status, min_fit=min_fit, applied_date=applied_date)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
