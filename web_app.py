@@ -677,6 +677,11 @@ def admin_html(pending, approved):
 <style>
   * {{ box-sizing:border-box;margin:0;padding:0; }}
   body {{ font:14px/1.5 system-ui,sans-serif; background:#f5f5f5; padding:20px; }}
+  .tabs {{ display:flex; gap:4px; background:#fff; border-radius:8px 8px 0 0; padding:8px 12px 0; box-shadow:0 1px 4px rgba(0,0,0,.1); }}
+  .tab {{ padding:8px 20px; text-decoration:none; color:#555; background:#eee; border-radius:6px 6px 0 0; font-size:13px; }}
+  .tab:hover {{ background:#ddd; }}
+  .tab-active {{ background:#1565c0; color:#fff; }}
+  .tab-active:hover {{ background:#0d47a1; }}
   h1 {{ margin-bottom:16px; }}
   .section {{ background:#fff; border-radius:8px; padding:16px 20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); }}
   .section h2 {{ font-size:16px; margin-bottom:12px; }}
