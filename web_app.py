@@ -334,7 +334,7 @@ new agGrid.Grid(gridDiv, gridOptions);
 fetch('/api/jobs/count')
   .then(function(r) {{ return r.json(); }})
   .then(function(d) {{
-    document.getElementById('count-badge').textContent = d.unapplied + ' jobs to apply';
+    document.getElementById('count-badge').textContent = d.to_apply + ' jobs to apply';
   }})
   .catch(function() {{}});
 
@@ -528,9 +528,11 @@ def api_jobs_count():
     u = uid()
     total_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).execute()
     applied_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).eq("status", "applied").execute()
+    actionable_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).in_("status", ["not_applied", "manual_apply"]).execute()
     total = getattr(total_resp, 'count', 0) or 0
     applied = getattr(applied_resp, 'count', 0) or 0
-    return jsonify({"total": total, "applied": applied, "unapplied": total - applied})
+    actionable = getattr(actionable_resp, 'count', 0) or 0
+    return jsonify({"total": total, "applied": applied, "to_apply": actionable})
 
 
 @app.route("/api/jobs/stats")
