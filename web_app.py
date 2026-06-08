@@ -250,8 +250,10 @@ var gridOptions = {{
             fetch('/apply/' + encodeURIComponent(___d.job_id), {{ method: 'POST' }})
               .then(function(r) {{
                 if (r.ok) {{
-                  params.node.setDataValue('status', 'applied');
-                  params.node.setDataValue('applied_date', new Date().toISOString().slice(0, 10));
+                  var nd = Object.assign({{}}, ___d);
+                  nd.status = 'applied';
+                  nd.applied_date = new Date().toISOString().slice(0, 10);
+                  params.node.setData(nd);
                 }}
                 window.open(params.value, '_blank');
               }})
