@@ -4,6 +4,19 @@ on:
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
+    inputs:
+      portal:
+        description: 'Which portal to search'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - foundit
+          - linkedin
+          - adzuna
+          - iimjobs
+          - naukri
 
 jobs:
   extract:
@@ -30,7 +43,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run job extraction
-        run: python multi_portal_job_hunter.py --cloud
+        run: |
+          PORTAL="${{ github.event.inputs.portal || 'all' }}"
+          if [ "$PORTAL" = "all" ]; then
+            python multi_portal_job_hunter.py --cloud
+          else
+            python multi_portal_job_hunter.py --cloud --portal "$PORTAL"
+          fi
 
       - name: Upload results CSV
         uses: actions/upload-artifact@v4
