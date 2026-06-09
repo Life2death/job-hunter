@@ -544,6 +544,11 @@ def fetch_foundit(keyword: str, location: str, pages: int = 3) -> list:
                     salmin = salx["absoluteValue"]
                 desc = (item.get("description") or "").replace("<p>", " ").replace("</p>", " ")[:500]
                 jid  = item.get("id") or item.get("jobId", "")
+                url  = item.get("jdUrl", "") or ""
+                if url and not url.startswith("http"):
+                    url = "https://www.foundit.in" + url
+                if not url:
+                    url = f"https://www.foundit.in/job/{jid}"
                 jobs.append({
                     "job_id":   f"fi_{jid}",
                     "portal":   "Foundit",
@@ -554,7 +559,7 @@ def fetch_foundit(keyword: str, location: str, pages: int = 3) -> list:
                     "salary_min": salmin,
                     "salary_max": 0,
                     "description": desc,
-                    "url": item.get("jdUrl", f"https://www.foundit.in/job/{jid}"),
+                    "url": url,
                 })
             time.sleep(1)
         except Exception as e:
