@@ -19,7 +19,7 @@ if (-not $SkipDiscovery) {
     Log ""
 
     Push-Location -LiteralPath "D:\Job"
-    python multi_portal_job_hunter.py 2>&1 | ForEach-Object { Log $_ }
+    python multi_portal_job_hunter.py --cloud 2>&1 | ForEach-Object { Log $_ }
     Pop-Location
 
     Log ""
