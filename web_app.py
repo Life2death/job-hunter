@@ -570,8 +570,8 @@ def api_debug_stats():
         null_dates = sum(1 for j in all_rows if j.get("imported_date") is None)
         uid_counts = {}
         for j in all_rows:
-            uid = j.get("user_id") or ""
-            uid_counts[uid] = uid_counts.get(uid, 0) + 1
+            uid_val = j.get("user_id") or ""
+            uid_counts[uid_val] = uid_counts.get(uid_val, 0) + 1
         return jsonify({
             "total_all_users": len(all_rows),
             "null_imported_date": null_dates,
