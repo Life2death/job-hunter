@@ -560,28 +560,6 @@ def api_jobs_count():
     return jsonify({"total": total, "applied": applied, "to_apply": actionable})
 
 
-@app.route("/api/debug/stats")
-def api_debug_stats():
-    cloud = get_cloud()
-    if not cloud:
-        return jsonify({"error": "Supabase not configured"}), 500
-    try:
-        all_rows = _fetch_all(cloud, None, "user_id, imported_date")
-        null_dates = sum(1 for j in all_rows if j.get("imported_date") is None)
-        uid_counts = {}
-        for j in all_rows:
-            uid_val = j.get("user_id") or ""
-            uid_counts[uid_val] = uid_counts.get(uid_val, 0) + 1
-        return jsonify({
-            "total_all_users": len(all_rows),
-            "null_imported_date": null_dates,
-            "uid_counts": uid_counts,
-            "session_uid": uid(),
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 def _fmt(d):
     """Normalize any date-like value to YYYY-MM-DD string.
     Handles date objects, datetime objects, ISO strings with/without time."""
@@ -645,11 +623,7 @@ def api_jobs_stats():
 
     # All jobs for added counts (by imported_date)
     all_rows = _fetch_all(cloud, u, "imported_date")
-    print(f"STATS DEBUG: uid={u!r}, all_rows={len(all_rows)}", flush=True)
     imported_dates = [_fmt(j.get("imported_date")) for j in all_rows if _fmt(j.get("imported_date"))]
-    print(f"STATS DEBUG: imported_dates={len(imported_dates)}, today_str[:7]={today_str[:7]!r}", flush=True)
-    if imported_dates:
-        print(f"STATS DEBUG: sample dates={imported_dates[:5]}, all_June={all(d.startswith(today_str[:7]) for d in imported_dates)}", flush=True)
 
     added_today = sum(1 for d in imported_dates if d == today_str)
     added_week = sum(1 for d in imported_dates if str(sunday) <= d <= today_str)

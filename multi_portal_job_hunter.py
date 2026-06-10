@@ -1362,6 +1362,8 @@ if __name__ == "__main__":
                         help="Use Supabase cloud DB instead of local SQLite")
     parser.add_argument("--pull", action="store_true",
                         help="Pull cloud DB into local SQLite")
+    parser.add_argument("--email", default="",
+                        help="User email for cloud DB (default: USER_EMAIL env var)")
     args = parser.parse_args()
 
     track_arg = None if args.track == "ALL" else args.track
@@ -1373,7 +1375,7 @@ if __name__ == "__main__":
         try:
             from cloud_db import CloudDB, is_available
             if is_available():
-                cloud_db = CloudDB()
+                cloud_db = CloudDB(user_id=args.email)
             else:
                 print("[!] Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY env vars.")
                 exit(1)

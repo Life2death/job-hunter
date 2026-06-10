@@ -17,11 +17,12 @@ TODAY = date.today()
 
 
 class CloudDB:
-    def __init__(self):
+    def __init__(self, user_id: str = ""):
         if not _AVAILABLE:
             raise RuntimeError(
                 "Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY env vars."
             )
+        self.user_id = user_id or os.environ.get("USER_EMAIL", "")
         try:
             from supabase import create_client
             self.client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -36,6 +37,7 @@ class CloudDB:
         for r in results:
             rows.append({
                 "job_id": r["job_id"],
+                "user_id": self.user_id,
                 "track": r["track"],
                 "portal": r.get("portal", ""),
                 "title": r.get("title", ""),
