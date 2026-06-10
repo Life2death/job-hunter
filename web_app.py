@@ -558,6 +558,34 @@ def api_jobs_count():
     return jsonify({"total": total, "applied": applied, "to_apply": actionable})
 
 
+@app.route("/api/debug/stats")
+def api_debug_stats():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"error": "Supabase not configured"}), 500
+    try:
+        r = cloud.table("job_listings").select("user_id", count="exact").execute()
+        total_all = getattr(r, 'count', 0) or 0
+        r2 = cloud.table("job_listings").select("user_id").is_("imported_date", "null").execute()
+        null_dates = len(r2.data or [])
+        r3 = cloud.table("job_listings").select("user_id, imported_date").execute()
+        all_rows = r3.data or []
+        return jsonify({
+            "total_all_users": total_all,
+            "null_imported_date": null_dates,
+            "total_returned": len(all_rows),
+            "uids": sorted(set(j.get("user_id", "") for j in all_rows)),
+            "uid_counts": {
+                uid: sum(1 for j in all_rows if j.get("user_id") == uid)
+                for uid in sorted(set(j.get("user_id", "") for j in all_rows))
+            },
+            "session_uid": uid(),
+            "session_email": session.get("email", ""),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def _fmt(d):
     """Normalize any date-like value to YYYY-MM-DD string.
     Handles date objects, datetime objects, ISO strings with/without time."""
@@ -621,7 +649,11 @@ def api_jobs_stats():
 
     # All jobs for added counts (by imported_date)
     all_rows = _fetch_all(cloud, u, "imported_date")
+    print(f"STATS DEBUG: uid={u!r}, all_rows={len(all_rows)}", flush=True)
     imported_dates = [_fmt(j.get("imported_date")) for j in all_rows if _fmt(j.get("imported_date"))]
+    print(f"STATS DEBUG: imported_dates={len(imported_dates)}, today_str[:7]={today_str[:7]!r}", flush=True)
+    if imported_dates:
+        print(f"STATS DEBUG: sample dates={imported_dates[:5]}, all_June={all(d.startswith(today_str[:7]) for d in imported_dates)}", flush=True)
 
     added_today = sum(1 for d in imported_dates if d == today_str)
     added_week = sum(1 for d in imported_dates if str(sunday) <= d <= today_str)
