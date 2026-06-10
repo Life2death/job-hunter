@@ -52,7 +52,7 @@ def fetch_all(cloud, table="job_listings", select_cols="*", user_id=None):
 
 def phase_a_stamp(cloud, user_id, dry_run=True):
     """Compute and set canon_url for all rows missing it."""
-    rows = fetch_all(cloud, select_cols="id, job_id, url, canon_url, user_id", user_id=user_id)
+    rows = fetch_all(cloud, select_cols="job_id, url, canon_url", user_id=user_id)
     to_update = []
     for r in rows:
         if r.get("canon_url"):
@@ -60,22 +60,31 @@ def phase_a_stamp(cloud, user_id, dry_run=True):
         cu = canonical_url(r.get("url", ""))
         if not cu:
             continue
-        to_update.append((cu, r["id"]))
+        to_update.append((cu, r["job_id"]))
 
     if dry_run:
         print(f"[DRY RUN] Would stamp canon_url on {len(to_update)} rows")
         return []
 
-    for cu, rid in to_update:
-        cloud.table("job_listings").update({"canon_url": cu}).eq("id", rid).execute()
+    # Group same canon_url together for batch updates
+    groups = {}
+    for cu, jid in to_update:
+        groups.setdefault(cu, []).append(jid)
 
-    print(f"[OK] Stamped canon_url on {len(to_update)} rows")
-    return to_update
+    chunk_size = 50
+    done = 0
+    for cu, jids in groups.items():
+        for i in range(0, len(jids), chunk_size):
+            chunk = jids[i:i + chunk_size]
+            cloud.table("job_listings").update({"canon_url": cu}).in_("job_id", chunk).execute()
+            done += len(chunk)
+
+    print(f"[OK] Stamped canon_url on {done} rows ({len(groups)} unique URLs)")
 
 
 def phase_b_collapse(cloud, user_id, dry_run=True):
     """Merge same-URL duplicates: keep best status, delete others."""
-    rows = fetch_all(cloud, select_cols="id, job_id, canon_url, status, applied_date, imported_date, fit, scores_json, user_id", user_id=user_id)
+    rows = fetch_all(cloud, select_cols="job_id, canon_url, status, applied_date, imported_date, fit, scores_json", user_id=user_id)
     url_groups = {}
     for r in rows:
         cu = r.get("canon_url") or ""
@@ -89,8 +98,7 @@ def phase_b_collapse(cloud, user_id, dry_run=True):
             continue
         group.sort(key=lambda x: STATUS_RANK.get(x.get("status", "not_applied"), 99))
         keep = group[0]
-        delete_ids = [r["id"] for r in group[1:]]
-        # Merge in higher fit/scores if the kept row has lower fit
+        delete_ids = [r["job_id"] for r in group[1:]]
         best_fit = keep.get("fit") or 0
         best_scores = keep.get("scores_json") or ""
         for r in group[1:]:
@@ -103,26 +111,32 @@ def phase_b_collapse(cloud, user_id, dry_run=True):
             merge_updates["scores_json"] = best_scores
         actions.append({
             "canon_url": cu,
-            "keep_id": keep["id"],
             "keep_job_id": keep["job_id"],
             "keep_status": keep.get("status"),
-            "delete_ids": delete_ids,
+            "delete_job_ids": delete_ids,
             "merge_updates": merge_updates,
         })
 
     if dry_run:
         for a in actions:
-            print(f"  [DRY RUN] Keep id={a['keep_id']} ({a['keep_status']}), delete ids={a['delete_ids']}, merge={a['merge_updates']}")
-        print(f"[DRY RUN] {len(actions)} groups would be collapsed ({sum(len(a['delete_ids']) for a in actions)} rows deleted)")
+            print(f"  [DRY RUN] Keep {a['keep_job_id']} ({a['keep_status']}), delete {a['delete_job_ids']}, merge={a['merge_updates']}")
+        print(f"[DRY RUN] {len(actions)} groups would be collapsed ({sum(len(a['delete_job_ids']) for a in actions)} rows deleted)")
         return actions
 
     for a in actions:
         if a["merge_updates"]:
-            cloud.table("job_listings").update(a["merge_updates"]).eq("id", a["keep_id"]).execute()
-        for did in a["delete_ids"]:
-            cloud.table("job_listings").delete().eq("id", did).execute()
+            cloud.table("job_listings").update(a["merge_updates"]).eq("job_id", a["keep_job_id"]).execute()
 
-    total_deleted = sum(len(a["delete_ids"]) for a in actions)
+    # Batch delete in chunks of 50 to minimize REST calls
+    all_delete_ids = []
+    for a in actions:
+        all_delete_ids.extend(a["delete_job_ids"])
+    chunk_size = 50
+    for i in range(0, len(all_delete_ids), chunk_size):
+        chunk = all_delete_ids[i:i + chunk_size]
+        cloud.table("job_listings").delete().in_("job_id", chunk).execute()
+
+    total_deleted = len(all_delete_ids)
     print(f"[OK] Collapsed {len(actions)} groups, deleted {total_deleted} rows")
     return actions
 
