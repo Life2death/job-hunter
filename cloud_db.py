@@ -47,15 +47,44 @@ class CloudDB:
                 "fit": r["fit"],
                 "freshness": r.get("freshness", ""),
                 "scores_json": r.get("scores_json", ""),
-                "status": "not_applied",
-                "imported_date": str(TODAY),
-                "last_seen_date": str(TODAY),
             })
         if not rows:
             return 0
-        count = 0
+
+        # Find which job_ids already exist so we preserve imported_date + status
+        existing_ids: set[str] = set()
+        all_ids = [r["job_id"] for r in rows]
+        if all_ids:
+            try:
+                existing_resp = self._table().select("job_id").in_("job_id", all_ids).execute()
+                if existing_resp.data:
+                    existing_ids = {r["job_id"] for r in existing_resp.data}
+            except Exception:
+                pass  # Fall through: treat all as new on error
+
+        today_str = str(TODAY)
+        new_rows: list[dict] = []
+        update_rows: list[dict] = []
         for row in rows:
-            data = self._table().upsert(row, on_conflict="job_id").execute()
+            if row["job_id"] in existing_ids:
+                update_rows.append({
+                    **row,
+                    "last_seen_date": today_str,
+                })
+            else:
+                new_rows.append({
+                    **row,
+                    "status": "not_applied",
+                    "imported_date": today_str,
+                    "last_seen_date": today_str,
+                })
+
+        count = 0
+        for row in new_rows:
+            self._table().insert(row).execute()
+            count += 1
+        for row in update_rows:
+            self._table().update(row).eq("job_id", row["job_id"]).execute()
             count += 1
         return count
 

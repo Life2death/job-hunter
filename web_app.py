@@ -536,10 +536,11 @@ def api_jobs_count():
 
 
 def _fmt(d):
-    """Normalize a date value (string or datetime.date) to a YYYY-MM-DD string."""
-    if isinstance(d, date) and not isinstance(d, str):
-        return str(d)
-    return (d or "")
+    """Normalize any date-like value to YYYY-MM-DD string.
+    Handles date objects, datetime objects, ISO strings with/without time."""
+    if not d:
+        return ""
+    return str(d)[:10]
 
 @app.route("/api/jobs/stats")
 def api_jobs_stats():
