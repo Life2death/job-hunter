@@ -20,6 +20,7 @@ import sys, io, os, json, csv, argparse, time, socket, re, sqlite3, hashlib
 from datetime import date, datetime
 from pathlib import Path
 from functools import lru_cache
+from dedup import canonical_url
 
 if __name__ == "__main__":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -819,12 +820,13 @@ class MultiPortalDB:
                 status    TEXT DEFAULT 'not_applied',
                 imported_date TEXT NOT NULL,
                 applied_date TEXT,
-                last_seen_date TEXT
+                last_seen_date TEXT,
+                canon_url TEXT
             )
         """)
         for col in ("track", "portal", "fit"):
             self.conn.execute(f"CREATE INDEX IF NOT EXISTS idx_mp_{col} ON job_listings({col})")
-        for col in ("applied_date", "last_seen_date"):
+        for col in ("applied_date", "last_seen_date", "canon_url"):
             try:
                 self.conn.execute(f"ALTER TABLE job_listings ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
@@ -834,21 +836,57 @@ class MultiPortalDB:
     def save_results(self, results: list) -> int:
         rows = []
         for r in results:
-            rows.append((
-                r["job_id"], r["track"], r["portal"], r["title"], r["company"],
-                r.get("location", ""), r.get("salary", ""), r.get("posted", ""),
-                r.get("url", ""), r["fit"], r["freshness"], r.get("scores_json", ""),
-                str(TODAY),
-            ))
+            cu = canonical_url(r.get("url", ""))
+            rows.append({
+                "job_id": r["job_id"],
+                "canon_url": cu,
+                "track": r["track"],
+                "portal": r.get("portal", ""),
+                "title": r.get("title", ""),
+                "company": r.get("company", ""),
+                "location": r.get("location", ""),
+                "salary": r.get("salary", ""),
+                "posted": r.get("posted", ""),
+                "url": r.get("url", ""),
+                "fit": r["fit"],
+                "freshness": r.get("freshness", ""),
+                "scores_json": r.get("scores_json", ""),
+            })
         if not rows:
             return 0
         before = self.conn.total_changes
-        self.conn.executemany(
-            "INSERT OR IGNORE INTO job_listings "
-            "(job_id, track, portal, title, company, location, salary, posted, url, "
-            " fit, freshness, scores_json, status, imported_date) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_applied', ?)", rows
-        )
+
+        for row in rows:
+            existing = None
+            cu = row["canon_url"]
+            if cu:
+                existing = self.conn.execute(
+                    "SELECT job_id, status, imported_date, applied_date, fit, scores_json "
+                    "FROM job_listings WHERE canon_url=?",
+                    (cu,)
+                ).fetchone()
+            if existing:
+                self.conn.execute(
+                    "UPDATE job_listings SET track=?, portal=?, title=?, company=?, "
+                    "location=?, salary=?, posted=?, url=?, fit=?, freshness=?, "
+                    "scores_json=?, last_seen_date=? WHERE canon_url=?",
+                    (row["track"], row["portal"], row["title"], row["company"],
+                     row["location"], row["salary"], row["posted"], row["url"],
+                     max(row["fit"], existing[4] or 0), row["freshness"],
+                     row["scores_json"] if row["fit"] >= (existing[4] or 0) else existing[5],
+                     str(TODAY), cu)
+                )
+            else:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO job_listings "
+                    "(job_id, canon_url, track, portal, title, company, location, salary, "
+                    " posted, url, fit, freshness, scores_json, status, imported_date, last_seen_date) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_applied', ?, ?)",
+                    (row["job_id"], cu, row["track"], row["portal"], row["title"],
+                     row["company"], row["location"], row["salary"],
+                     row["posted"], row["url"], row["fit"], row["freshness"],
+                     row["scores_json"], str(TODAY), str(TODAY))
+                )
         self.conn.commit()
         return self.conn.total_changes - before
 
@@ -919,6 +957,7 @@ class MultiPortalDB:
 def run(tracks: list, portals: list, test_mode: bool = False):
     all_results = []
     seen_ids    = set()
+    seen_urls   = set()
     pages       = 1 if test_mode else 3
 
     for track in tracks:
@@ -944,6 +983,11 @@ def run(tracks: list, portals: list, test_mode: bool = False):
                     if jid in seen_ids:
                         continue
                     seen_ids.add(jid)
+                    cu = canonical_url(job.get("url", ""))
+                    if cu and cu in seen_urls:
+                        continue
+                    if cu:
+                        seen_urls.add(cu)
 
                     fresh_tag, penalty, age = freshness(job.get("posted_date", ""))
                     if penalty is None:

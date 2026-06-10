@@ -7,6 +7,7 @@ Mirrors MultiPortalDB interface but talks to Supabase PostgreSQL.
 import os, json
 from datetime import date
 from typing import Optional
+from dedup import canonical_url, normalize_job_key
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -35,9 +36,11 @@ class CloudDB:
     def save_results(self, results: list) -> int:
         rows = []
         for r in results:
+            cu = canonical_url(r.get("url", ""))
             rows.append({
                 "job_id": r["job_id"],
                 "user_id": self.user_id,
+                "canon_url": cu,
                 "track": r["track"],
                 "portal": r.get("portal", ""),
                 "title": r.get("title", ""),
@@ -53,22 +56,45 @@ class CloudDB:
         if not rows:
             return 0
 
-        # Find which job_ids already exist so we preserve imported_date + status
-        existing_ids: set[str] = set()
+        # Find existing rows by canon_url (preferred) or job_id (fallback)
+        existing_by_url: dict[str, dict] = {}
+        existing_by_jid: set[str] = set()
+        non_empty_urls = [r["canon_url"] for r in rows if r["canon_url"]]
         all_ids = [r["job_id"] for r in rows]
+        if non_empty_urls:
+            try:
+                existing_resp = self._table().select("job_id, canon_url, status, imported_date, applied_date, fit, scores_json") \
+                    .eq("user_id", self.user_id) \
+                    .in_("canon_url", non_empty_urls) \
+                    .execute()
+                if existing_resp.data:
+                    for r in existing_resp.data:
+                        existing_by_url[r["canon_url"]] = r
+            except Exception:
+                pass
         if all_ids:
             try:
-                existing_resp = self._table().select("job_id").in_("job_id", all_ids).execute()
-                if existing_resp.data:
-                    existing_ids = {r["job_id"] for r in existing_resp.data}
+                existing_resp2 = self._table().select("job_id").in_("job_id", all_ids).execute()
+                if existing_resp2.data:
+                    existing_by_jid = {r["job_id"] for r in existing_resp2.data}
             except Exception:
-                pass  # Fall through: treat all as new on error
+                pass
 
         today_str = str(TODAY)
         new_rows: list[dict] = []
         update_rows: list[dict] = []
         for row in rows:
-            if row["job_id"] in existing_ids:
+            existing = existing_by_url.get(row["canon_url"]) if row["canon_url"] else None
+            if existing:
+                upd = {
+                    **row,
+                    "last_seen_date": today_str,
+                }
+                if row["fit"] >= (existing.get("fit") or 0):
+                    upd["fit"] = row["fit"]
+                    upd["scores_json"] = row.get("scores_json", "")
+                update_rows.append(upd)
+            elif row["job_id"] in existing_by_jid:
                 update_rows.append({
                     **row,
                     "last_seen_date": today_str,
@@ -148,8 +174,8 @@ class CloudDB:
                 local_db.conn.execute(
                     """INSERT OR REPLACE INTO job_listings
                     (job_id, track, portal, title, company, location, salary, posted, url,
-                     fit, freshness, scores_json, status, imported_date, applied_date, last_seen_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     fit, freshness, scores_json, status, imported_date, applied_date, last_seen_date, canon_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         j.get("job_id", ""), j.get("track", ""), j.get("portal", ""),
                         j.get("title", ""), j.get("company", ""),
@@ -160,6 +186,7 @@ class CloudDB:
                         j.get("imported_date", str(TODAY)),
                         j.get("applied_date", ""),
                         j.get("last_seen_date", ""),
+                        j.get("canon_url", ""),
                     )
                 )
                 count += 1
