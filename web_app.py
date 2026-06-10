@@ -45,6 +45,32 @@ def get_admin_cloud():
 def uid():
     return session.get("email", "")
 
+def _fetch_all(cloud, user_id, select_cols, status_filter=None):
+    page_size = 1000
+    all_rows = []
+    off = 0
+    while True:
+        q = cloud.table("job_listings").select(select_cols).eq("user_id", user_id)
+        if status_filter is not None:
+            if isinstance(status_filter, list):
+                q = q.in_("status", status_filter)
+            else:
+                q = q.eq("status", status_filter)
+        batch = q.range(off, off + page_size - 1).execute()
+        data = batch.data or []
+        if not data:
+            break
+        all_rows.extend(data)
+        if len(data) < page_size:
+            break
+        off += page_size
+    return all_rows
+
+
+def _fetch_count(cloud, user_id, status_filter=None):
+    return len(_fetch_all(cloud, user_id, "job_id", status_filter))
+
+
 def auto_confirm_email(user_id):
     if not SUPABASE_SERVICE_KEY or not SUPABASE_URL:
         return False
@@ -526,12 +552,9 @@ def api_jobs_count():
     if not cloud:
         return jsonify({"error": "Supabase not configured"}), 500
     u = uid()
-    total_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).execute()
-    applied_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).eq("status", "applied").execute()
-    actionable_resp = cloud.table("job_listings").select("job_id", count="exact").eq("user_id", u).in_("status", ["not_applied", "manual_apply"]).execute()
-    total = getattr(total_resp, 'count', 0) or 0
-    applied = getattr(applied_resp, 'count', 0) or 0
-    actionable = getattr(actionable_resp, 'count', 0) or 0
+    total = _fetch_count(cloud, u)
+    applied = _fetch_count(cloud, u, "applied")
+    actionable = _fetch_count(cloud, u, ["not_applied", "manual_apply"])
     return jsonify({"total": total, "applied": applied, "to_apply": actionable})
 
 
@@ -554,8 +577,7 @@ def api_jobs_stats():
     yesterday_str = str(today - timedelta(days=1))
 
     # Applied jobs with track for breakdown
-    applied_resp = cloud.table("job_listings").select("applied_date, company, track, status").eq("status", "applied").eq("user_id", u).execute()
-    applied = applied_resp.data if applied_resp else []
+    applied = _fetch_all(cloud, u, "applied_date, company, track, status", "applied")
 
     # Normalize applied_date to string so comparisons with == always work
     for j in applied:
@@ -598,8 +620,7 @@ def api_jobs_stats():
     ]
 
     # All jobs for added counts (by imported_date)
-    all_resp = cloud.table("job_listings").select("imported_date").eq("user_id", u).execute()
-    all_rows = all_resp.data if all_resp else []
+    all_rows = _fetch_all(cloud, u, "imported_date")
     imported_dates = [_fmt(j.get("imported_date")) for j in all_rows if _fmt(j.get("imported_date"))]
 
     added_today = sum(1 for d in imported_dates if d == today_str)
