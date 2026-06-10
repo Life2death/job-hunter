@@ -535,6 +535,12 @@ def api_jobs_count():
     return jsonify({"total": total, "applied": applied, "to_apply": actionable})
 
 
+def _fmt(d):
+    """Normalize a date value (string or datetime.date) to a YYYY-MM-DD string."""
+    if isinstance(d, date) and not isinstance(d, str):
+        return str(d)
+    return (d or "")
+
 @app.route("/api/jobs/stats")
 def api_jobs_stats():
     cloud = get_cloud()
@@ -542,18 +548,23 @@ def api_jobs_stats():
         return jsonify({"error": "Supabase not configured"}), 500
 
     u = uid()
-    today_str = str(date.today())
-    yesterday_str = str(date.today() - timedelta(days=1))
+    today = date.today()
+    today_str = str(today)
+    yesterday_str = str(today - timedelta(days=1))
 
     # Applied jobs with track for breakdown
     applied_resp = cloud.table("job_listings").select("applied_date, company, track, status").eq("status", "applied").eq("user_id", u).execute()
     applied = applied_resp.data if applied_resp else []
 
+    # Normalize applied_date to string so comparisons with == always work
+    for j in applied:
+        j["applied_date"] = _fmt(j.get("applied_date"))
+
     today_count = sum(1 for j in applied if j.get("applied_date") == today_str)
     yesterday_count = sum(1 for j in applied if j.get("applied_date") == yesterday_str)
 
-    days_since_sunday = (date.today().weekday() + 1) % 7
-    sunday = date.today() - timedelta(days=days_since_sunday)
+    days_since_sunday = (today.weekday() + 1) % 7
+    sunday = today - timedelta(days=days_since_sunday)
 
     # Track counters per day
     track_by_date = {}
@@ -577,7 +588,7 @@ def api_jobs_stats():
     companies_by_date = {}
     for j in applied:
         ad = j.get("applied_date", "")
-        if ad and ad >= str(date.today() - timedelta(days=14)):
+        if ad and ad >= str(today - timedelta(days=14)):
             companies_by_date.setdefault(ad, set()).add(j.get("company", ""))
 
     companies_per_day = [
@@ -588,10 +599,10 @@ def api_jobs_stats():
     # All jobs for added counts (by imported_date)
     all_resp = cloud.table("job_listings").select("imported_date").eq("user_id", u).execute()
     all_rows = all_resp.data if all_resp else []
-    imported_dates = [j.get("imported_date", "") for j in all_rows if j.get("imported_date")]
+    imported_dates = [_fmt(j.get("imported_date")) for j in all_rows if _fmt(j.get("imported_date"))]
 
     added_today = sum(1 for d in imported_dates if d == today_str)
-    added_week = sum(1 for d in imported_dates if sunday <= date.fromisoformat(d) <= date.today())
+    added_week = sum(1 for d in imported_dates if str(sunday) <= d <= today_str)
     added_month = sum(1 for d in imported_dates if d.startswith(today_str[:7]))
 
     return jsonify({
