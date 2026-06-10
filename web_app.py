@@ -50,7 +50,9 @@ def _fetch_all(cloud, user_id, select_cols, status_filter=None):
     all_rows = []
     off = 0
     while True:
-        q = cloud.table("job_listings").select(select_cols).eq("user_id", user_id)
+        q = cloud.table("job_listings").select(select_cols)
+        if user_id is not None:
+            q = q.eq("user_id", user_id)
         if status_filter is not None:
             if isinstance(status_filter, list):
                 q = q.in_("status", status_filter)
@@ -564,23 +566,17 @@ def api_debug_stats():
     if not cloud:
         return jsonify({"error": "Supabase not configured"}), 500
     try:
-        r = cloud.table("job_listings").select("user_id", count="exact").execute()
-        total_all = getattr(r, 'count', 0) or 0
-        r2 = cloud.table("job_listings").select("user_id").is_("imported_date", "null").execute()
-        null_dates = len(r2.data or [])
-        r3 = cloud.table("job_listings").select("user_id, imported_date").execute()
-        all_rows = r3.data or []
+        all_rows = _fetch_all(cloud, None, "user_id, imported_date")
+        null_dates = sum(1 for j in all_rows if j.get("imported_date") is None)
+        uid_counts = {}
+        for j in all_rows:
+            uid = j.get("user_id") or ""
+            uid_counts[uid] = uid_counts.get(uid, 0) + 1
         return jsonify({
-            "total_all_users": total_all,
+            "total_all_users": len(all_rows),
             "null_imported_date": null_dates,
-            "total_returned": len(all_rows),
-            "uids": sorted(set(j.get("user_id", "") for j in all_rows)),
-            "uid_counts": {
-                uid: sum(1 for j in all_rows if j.get("user_id") == uid)
-                for uid in sorted(set(j.get("user_id", "") for j in all_rows))
-            },
+            "uid_counts": uid_counts,
             "session_uid": uid(),
-            "session_email": session.get("email", ""),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
