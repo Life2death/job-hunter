@@ -235,6 +235,8 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
   .status-manual_apply {{ color: #e65100 !important; font-weight: 600 !important; }}
   .status-skipped {{ color: #999 !important; }}
   .status-not_interested {{ color: #999 !important; }}
+  .row-new      {{ background-color: #e8f5e9 !important; }}
+  .row-updated  {{ background-color: #e3f2fd !important; }}
 </style>
 </head>
 <body>
@@ -246,6 +248,7 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
   </div>
   <div style="text-align:right;flex-shrink:0;">
     <div id="count-badge" style="font-size:13px;color:#666;white-space:nowrap;"></div>
+    <div id="change-badge" style="font-size:12px;color:#999;margin-top:2px;white-space:nowrap;"></div>
   </div>
 </div>
 <div id="load-info" style="font-size:12px;color:#999;margin-bottom:8px;text-align:right;"></div>
@@ -336,6 +339,10 @@ var gridOptions = {{
     }}
   ],
   defaultColDef: {{ resizable: true }},
+  rowClassRules: {{
+    'row-new': function(p) {{ return p.data.imported_date && p.data.imported_date === p.data.last_seen_date; }},
+    'row-updated': function(p) {{ return p.data.imported_date && p.data.last_seen_date && p.data.imported_date !== p.data.last_seen_date; }}
+  }},
   rowData: null,
   postSortRows: function(params) {{
     var rows = params.nodes;
@@ -353,6 +360,7 @@ var gridOptions = {{
   animateRows: true,
   enableCellTextSelection: true,
   ensureDomOrder: true,
+  onRowDataUpdated: updateChangeBadge,
 }};
 
 var gridDiv = document.getElementById('jobGrid');
@@ -365,6 +373,17 @@ fetch('/api/jobs/count')
     document.getElementById('count-badge').textContent = d.to_apply + ' jobs to apply';
   }})
   .catch(function() {{}});
+
+// Change tracking: update badge after data loads
+function updateChangeBadge() {{
+  var rows = [];
+  gridOptions.api.forEachNode(function(n) {{ rows.push(n.data); }});
+  if (!rows.length) return;
+  var _new = rows.filter(function(r) {{ return r.imported_date && r.imported_date === r.last_seen_date; }}).length;
+  var upd = rows.filter(function(r) {{ return r.imported_date && r.last_seen_date && r.imported_date !== r.last_seen_date; }}).length;
+  var el = document.getElementById('change-badge');
+  if (_new || upd) el.textContent = _new + ' new, ' + upd + ' updated';
+}}
 
 // Lazy load: first 200 rows instantly, rest in background
 var baseUrl = '{api_url}';
