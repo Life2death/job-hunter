@@ -197,13 +197,14 @@ BASE_CSS = """<style>
 </style>"""
 
 
-def generate_html(track="", portal="", status="", min_fit=0, applied_date=""):
+def generate_html(track="", portal="", status="", min_fit=0, applied_date="", imported_date=""):
     qs_parts = []
     if track: qs_parts.append(f"track={track}")
     if portal: qs_parts.append(f"portal={portal}")
     if status: qs_parts.append(f"status={status}")
     if min_fit: qs_parts.append(f"min_fit={min_fit}")
     if applied_date: qs_parts.append(f"applied_date={applied_date}")
+    if imported_date: qs_parts.append(f"imported_date={imported_date}")
     qs = "&".join(qs_parts)
     api_url = f"/api/jobs?{qs}" if qs else "/api/jobs"
 
@@ -566,7 +567,7 @@ function barColor(name) {{
 function qs(params) {{
   var p = [];
   for (var k in params) {{ if (params[k]) p.push(k + '=' + encodeURIComponent(params[k])); }}
-  return p.length ? '?' + p.join('&') : '';
+  return '/jobs' + (p.length ? '?' + p.join('&') : '');
 }}
 
 function renderBreakdownTable(rows, grandTotal, tbodyId, dateFilter) {{
@@ -891,8 +892,9 @@ def report():
     status = request.args.get("status", "")
     min_fit = request.args.get("min_fit", 0, type=int)
     applied_date = request.args.get("applied_date", "")
+    imported_date = request.args.get("imported_date", "")
 
-    html = generate_html(track=track, portal=portal, status=status, min_fit=min_fit, applied_date=applied_date)
+    html = generate_html(track=track, portal=portal, status=status, min_fit=min_fit, applied_date=applied_date, imported_date=imported_date)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
