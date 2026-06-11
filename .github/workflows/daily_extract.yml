@@ -30,6 +30,7 @@ jobs:
       NAUKRI_COOKIE: ${{ secrets.NAUKRI_COOKIE }}
       ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
       ADZUNA_API_KEY: ${{ secrets.ADZUNA_API_KEY }}
+      USER_EMAIL: ${{ secrets.USER_EMAIL }}
 
     steps:
       - uses: actions/checkout@v4
