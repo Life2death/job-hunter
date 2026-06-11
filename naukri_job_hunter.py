@@ -481,7 +481,7 @@ APPLY_URL = "https://www.naukri.com/cloudgateway-workflow/workflow-services/appl
 APPLIED_CSV = Path("applied_jobs.csv")
 APPLIED_DB = Path("applied_jobs.db")
 APPLY_SCORE_CUTOFF = 50
-APPLY_DELAY = 4.0
+APPLY_DELAY = 5.0
 
 APPLY_LOGSTR_MAP = {
     "search": "srp",
