@@ -1050,6 +1050,8 @@ def run_batch_apply(track: str, batch_size: int, interval_minutes: int, cloud: C
                 print(f"ISSUE: {status[:50]}")
                 error_count += 1
 
+            time.sleep(APPLY_DELAY)
+
             if i < len(jobs) and interval_minutes > 0:
                 print(f"  (waiting {interval_minutes} min...)")
                 try:
