@@ -37,7 +37,7 @@ if (-not $SkipNaukri) {
         Log ""
 
         Push-Location -LiteralPath "D:\Job"
-        python naukri_job_hunter.py --track $track --batch-apply --interval 1 2>&1 | ForEach-Object { Log $_ }
+        python naukri_job_hunter.py --track $track --batch-apply --interval 1 --cloud 2>&1 | ForEach-Object { Log $_ }
         Pop-Location
 
         Log ""
