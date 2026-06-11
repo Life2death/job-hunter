@@ -478,6 +478,7 @@ def generate_dashboard_html():
   .breakdown-table .grand-total td {{ font-weight: 700; background: #1565c0; color: #fff; border: none; }}
   .breakdown-table .grand-total td:first-child {{ border-radius: 0 0 0 8px; }}
   .breakdown-table .grand-total td:last-child {{ border-radius: 0 0 8px 0; }}
+  .breakdown-table td a:hover {{ text-decoration: underline !important; opacity: .85; }}
   .bar-wrapper {{ display: inline-flex; align-items: center; gap: 6px; width: 100%; }}
   .bar-track {{ flex: 1; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }}
   .bar-fill {{ height: 100%; border-radius: 4px; transition: width .4s; }}
@@ -532,23 +533,32 @@ function barColor(name) {{
   return colors[portalClass(name).replace('p-','')] || '#90a4ae';
 }}
 
-function renderBreakdownTable(rows, grandTotal, tbodyId) {{
+function qs(params) {{
+  var p = [];
+  for (var k in params) {{ if (params[k]) p.push(k + '=' + encodeURIComponent(params[k])); }}
+  return p.length ? '?' + p.join('&') : '';
+}}
+
+function renderBreakdownTable(rows, grandTotal, tbodyId, dateFilter) {{
   var html = '', maxTotal = Math.max(1, grandTotal.total);
   rows.forEach(function(r) {{
     var pc = r.total / maxTotal;
     var pct = (pc * 100).toFixed(1);
     bc = barColor(r.portal);
     html += '<tr>'
-      + '<td class="portal-name ' + portalClass(r.portal) + '">' + r.portal + '</td>'
-      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '">' + r.total + '</td>'
-      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '">' + r.SM + '</td>'
-      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '">' + r.PM + '</td>'
-      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '">' + r.DIR + '</td>'
+      + '<td class="portal-name ' + portalClass(r.portal) + '"><a href="' + qs({{portal:r.portal,imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.portal + '</a></td>'
+      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '"><a href="' + qs({{portal:r.portal,imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.total + '</a></td>'
+      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '"><a href="' + qs({{portal:r.portal,track:'SM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.SM + '</a></td>'
+      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '"><a href="' + qs({{portal:r.portal,track:'PM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.PM + '</a></td>'
+      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '"><a href="' + qs({{portal:r.portal,track:'DIR',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.DIR + '</a></td>'
       + '<td><div class="bar-wrapper"><div class="bar-track"><div class="bar-fill" style="width:' + (pc * 100) + '%;background:' + bc + '"></div></div><span style="font-size:11px;color:#666;white-space:nowrap;">' + pct + '%</span></div></td>'
       + '</tr>';
   }});
-  html += '<tr class="grand-total"><td>Total</td>'
-    + '<td>' + grandTotal.total + '</td><td>' + grandTotal.SM + '</td><td>' + grandTotal.PM + '</td><td>' + grandTotal.DIR + '</td>'
+  html += '<tr class="grand-total"><td><a href="' + qs({{imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">Total</a></td>'
+    + '<td><a href="' + qs({{imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.total + '</a></td>'
+    + '<td><a href="' + qs({{track:'SM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.SM + '</a></td>'
+    + '<td><a href="' + qs({{track:'PM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.PM + '</a></td>'
+    + '<td><a href="' + qs({{track:'DIR',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.DIR + '</a></td>'
     + '<td>100%</td></tr>';
   document.getElementById(tbodyId).innerHTML = html;
 }}
@@ -587,14 +597,16 @@ fetch('/api/jobs/stats')
   }})
   .catch(function(e) {{ console.error('Failed to load stats', e); }});
 
-fetch('/api/jobs/breakdown?date=' + new Date().toISOString().slice(0,10))
+var todayStr = new Date().toISOString().slice(0,10);
+
+fetch('/api/jobs/breakdown?date=' + todayStr)
   .then(function(r) {{ return r.json(); }})
-  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'todayBreakdownBody'); }})
+  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'todayBreakdownBody', todayStr); }})
   .catch(function(e) {{ console.error('Failed to load today breakdown', e); }});
 
 fetch('/api/jobs/breakdown')
   .then(function(r) {{ return r.json(); }})
-  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'allTimeBreakdownBody'); }})
+  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'allTimeBreakdownBody', null); }})
   .catch(function(e) {{ console.error('Failed to load all-time breakdown', e); }});
 </script>
 </body>
@@ -615,6 +627,7 @@ def api_jobs():
     status = request.args.get("status")
     min_fit = request.args.get("min_fit", 0, type=int)
     applied_date = request.args.get("applied_date")
+    imported_date = request.args.get("imported_date")
 
     def filtered_query(sel="*", with_count=False):
         q = cloud.table("job_listings").select(sel, count="exact" if with_count else None)
@@ -623,6 +636,7 @@ def api_jobs():
         if portal: q = q.eq("portal", portal)
         if status: q = q.eq("status", status)
         if applied_date: q = q.eq("applied_date", applied_date)
+        if imported_date: q = q.eq("imported_date", imported_date)
         return q.gte("fit", min_fit)
 
     limit = request.args.get("limit", type=int)
