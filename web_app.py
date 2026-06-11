@@ -540,25 +540,29 @@ function qs(params) {{
 }}
 
 function renderBreakdownTable(rows, grandTotal, tbodyId, dateFilter) {{
+  function a(href, label) {{
+    return '<a target="_blank" rel="noopener" href="' + href + '" style="color:inherit;text-decoration:none;">' + label + '</a>';
+  }}
   var html = '', maxTotal = Math.max(1, grandTotal.total);
   rows.forEach(function(r) {{
     var pc = r.total / maxTotal;
     var pct = (pc * 100).toFixed(1);
     bc = barColor(r.portal);
     html += '<tr>'
-      + '<td class="portal-name ' + portalClass(r.portal) + '"><a href="' + qs({{portal:r.portal,imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.portal + '</a></td>'
-      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '"><a href="' + qs({{portal:r.portal,imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.total + '</a></td>'
-      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '"><a href="' + qs({{portal:r.portal,track:'SM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.SM + '</a></td>'
-      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '"><a href="' + qs({{portal:r.portal,track:'PM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.PM + '</a></td>'
-      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '"><a href="' + qs({{portal:r.portal,track:'DIR',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + r.DIR + '</a></td>'
+      + '<td class="portal-name ' + portalClass(r.portal) + '">' + a(qs({{portal:r.portal,imported_date:dateFilter}}), r.portal) + '</td>'
+      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '">' + a(qs({{portal:r.portal,imported_date:dateFilter}}), r.total) + '</td>'
+      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '">' + a(qs({{portal:r.portal,track:'SM',imported_date:dateFilter}}), r.SM) + '</td>'
+      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '">' + a(qs({{portal:r.portal,track:'PM',imported_date:dateFilter}}), r.PM) + '</td>'
+      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '">' + a(qs({{portal:r.portal,track:'DIR',imported_date:dateFilter}}), r.DIR) + '</td>'
       + '<td><div class="bar-wrapper"><div class="bar-track"><div class="bar-fill" style="width:' + (pc * 100) + '%;background:' + bc + '"></div></div><span style="font-size:11px;color:#666;white-space:nowrap;">' + pct + '%</span></div></td>'
       + '</tr>';
   }});
-  html += '<tr class="grand-total"><td><a href="' + qs({{imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">Total</a></td>'
-    + '<td><a href="' + qs({{imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.total + '</a></td>'
-    + '<td><a href="' + qs({{track:'SM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.SM + '</a></td>'
-    + '<td><a href="' + qs({{track:'PM',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.PM + '</a></td>'
-    + '<td><a href="' + qs({{track:'DIR',imported_date:dateFilter}}) + '" style="color:inherit;text-decoration:none;">' + grandTotal.DIR + '</a></td>'
+  var g = qs({{imported_date:dateFilter}});
+  html += '<tr class="grand-total"><td>' + a(g, 'Total') + '</td>'
+    + '<td>' + a(g, grandTotal.total) + '</td>'
+    + '<td>' + a(qs({{track:'SM',imported_date:dateFilter}}), grandTotal.SM) + '</td>'
+    + '<td>' + a(qs({{track:'PM',imported_date:dateFilter}}), grandTotal.PM) + '</td>'
+    + '<td>' + a(qs({{track:'DIR',imported_date:dateFilter}}), grandTotal.DIR) + '</td>'
     + '<td>100%</td></tr>';
   document.getElementById(tbodyId).innerHTML = html;
 }}
