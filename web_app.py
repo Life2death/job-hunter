@@ -4,7 +4,7 @@ Flask web service for interactive job report with multi-user auth.
 Serves dashboard + AG Grid job table with click-to-apply tracking.
 Users sign up with email/password, admin approves access.
 """
-import os, sys
+import os, sys, json
 from datetime import date, timedelta
 sys.stdout = sys.stderr
 TODAY = date.today()
@@ -428,7 +428,35 @@ function fetchRemaining() {{
 </html>"""
 
 
-def generate_dashboard_html():
+def compute_breakdown(all_rows, date_filter=None):
+    portal_track = {}
+    for j in all_rows:
+        p = j.get("portal", "Unknown") or "Unknown"
+        t = j.get("track", "?") or "?"
+        if date_filter:
+            idate = _fmt(j.get("imported_date"))
+            if idate != date_filter:
+                continue
+        key = (p, t)
+        portal_track[key] = portal_track.get(key, 0) + 1
+    portal_map = {}
+    gt_sm = gt_pm = gt_dir = gt_total = 0
+    for (p, t), cnt in sorted(portal_track.items()):
+        portal_map.setdefault(p, {"SM": 0, "PM": 0, "DIR": 0, "total": 0})
+        if t in portal_map[p]:
+            portal_map[p][t] += cnt
+        portal_map[p]["total"] += cnt
+        if t == "SM": gt_sm += cnt
+        elif t == "PM": gt_pm += cnt
+        elif t == "DIR": gt_dir += cnt
+        gt_total += cnt
+    rows = [{"portal": p, "SM": v["SM"], "PM": v["PM"], "DIR": v["DIR"], "total": v["total"]} for p, v in sorted(portal_map.items())]
+    return rows, {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total}
+
+
+def generate_dashboard_html(today_data=None, all_data=None):
+    today_json = json.dumps(today_data or {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}})
+    all_json = json.dumps(all_data or {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}})
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -516,6 +544,8 @@ def generate_dashboard_html():
   </div>
 </div>
 <script>
+var BREAKDOWN_TODAY = {today_json};
+var BREAKDOWN_ALL = {all_json};
 function heat(val, max) {{
   var ratio = max > 0 ? val / Math.max(1, max) : 0;
   var r = Math.round(ratio < 0.5 ? 220 : 255 - (ratio - 0.5) * 70);
@@ -602,16 +632,8 @@ fetch('/api/jobs/stats')
   .catch(function(e) {{ console.error('Failed to load stats', e); }});
 
 var todayStr = new Date().toISOString().slice(0,10);
-
-fetch('/api/jobs/breakdown?date=' + todayStr)
-  .then(function(r) {{ return r.json(); }})
-  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'todayBreakdownBody', todayStr); }})
-  .catch(function(e) {{ console.error('Failed to load today breakdown', e); }});
-
-fetch('/api/jobs/breakdown')
-  .then(function(r) {{ return r.json(); }})
-  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'allTimeBreakdownBody', null); }})
-  .catch(function(e) {{ console.error('Failed to load all-time breakdown', e); }});
+renderBreakdownTable(BREAKDOWN_TODAY.rows, BREAKDOWN_TODAY.grand_total, 'todayBreakdownBody', todayStr);
+renderBreakdownTable(BREAKDOWN_ALL.rows, BREAKDOWN_ALL.grand_total, 'allTimeBreakdownBody', null);
 </script>
 </body>
 </html>"""
@@ -769,41 +791,15 @@ def api_jobs_breakdown():
     if not cloud:
         return jsonify({"error": "Supabase not configured"}), 500
     u = uid()
-    date_filter = request.args.get("date")
-
-    all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
-    portal_track = {}
-    for j in all_rows:
-        p = j.get("portal", "Unknown") or "Unknown"
-        t = j.get("track", "?") or "?"
-        if date_filter:
-            idate = _fmt(j.get("imported_date"))
-            if idate != date_filter:
-                continue
-        key = (p, t)
-        portal_track[key] = portal_track.get(key, 0) + 1
-
-    portal_map = {}
-    gt_sm = gt_pm = gt_dir = gt_total = 0
-    for (p, t), cnt in sorted(portal_track.items()):
-        portal_map.setdefault(p, {"SM": 0, "PM": 0, "DIR": 0, "total": 0})
-        if t in portal_map[p]:
-            portal_map[p][t] += cnt
-        portal_map[p]["total"] += cnt
-        if t == "SM": gt_sm += cnt
-        elif t == "PM": gt_pm += cnt
-        elif t == "DIR": gt_dir += cnt
-        gt_total += cnt
-
-    rows = [{"portal": p,
-             "SM": v["SM"], "PM": v["PM"], "DIR": v["DIR"],
-             "total": v["total"]}
-            for p, v in sorted(portal_map.items())]
-
-    return jsonify({
-        "rows": rows,
-        "grand_total": {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total},
-    })
+    if not u:
+        return jsonify({"error": "Not authenticated"}), 401
+    try:
+        all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
+        date_filter = request.args.get("date")
+        rows, gt = compute_breakdown(all_rows, date_filter)
+        return jsonify({"rows": rows, "grand_total": gt})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/apply/<job_id>", methods=["POST"])
@@ -866,7 +862,21 @@ def status_summary():
 @app.route("/")
 @app.route("/dashboard")
 def dashboard():
-    html = generate_dashboard_html()
+    today_data = all_data = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
+    cloud = get_cloud()
+    u = uid()
+    if cloud and u:
+        try:
+            all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
+            if all_rows:
+                today_str = str(date.today())
+                today_rows, today_gt = compute_breakdown(all_rows, today_str)
+                all_rows_p, all_gt = compute_breakdown(all_rows)
+                today_data = {"rows": today_rows, "grand_total": today_gt}
+                all_data = {"rows": all_rows_p, "grand_total": all_gt}
+        except Exception:
+            pass
+    html = generate_dashboard_html(today_data, all_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
