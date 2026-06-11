@@ -457,11 +457,30 @@ def generate_dashboard_html():
   .week-day-num a {{ color: #1565c0; text-decoration:none; }}
   .week-day-num a:hover {{ text-decoration:underline; }}
   .track-breakdown {{ margin-top:4px; border-top:1px solid #d0d8f0; padding-top:4px; font-size:11px; line-height:1.5; color:#555; }}
-  .breakdown-table {{ width: auto; min-width: 400px; }}
-  .breakdown-table th, .breakdown-table td {{ padding: 5px 14px; text-align: center; }}
-  .breakdown-table th:first-child, .breakdown-table td:first-child {{ text-align: left; }}
-  .breakdown-table .portal-name {{ font-weight: 500; }}
-  .breakdown-table .grand-total td {{ font-weight: 700; border-top: 2px solid #ccc; }}
+  .breakdown-table {{ width: 100%; border-radius: 8px; overflow: hidden; }}
+  .breakdown-table thead {{ background: #1a2332; }}
+  .breakdown-table th {{ color: #fff; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px; }}
+  .breakdown-table td {{ padding: 8px 14px; font-size: 13px; }}
+  .breakdown-table thead th:first-child {{ border-radius: 8px 0 0 0; }}
+  .breakdown-table thead th:last-child {{ border-radius: 0 8px 0 0; }}
+  .breakdown-table tbody tr {{ transition: background .15s; }}
+  .breakdown-table tbody tr:nth-child(even) {{ background: #f8fafc; }}
+  .breakdown-table tbody tr:hover {{ background: #eef2ff; }}
+  .breakdown-table .portal-name {{ font-weight: 600; text-align: left; }}
+  .breakdown-table .portal-name::before {{ content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }}
+  .breakdown-table .portal-name.p-naukri::before {{ background: #e74c3c; }}
+  .breakdown-table .portal-name.p-linkedin::before {{ background: #1565c0; }}
+  .breakdown-table .portal-name.p-adzuna::before {{ background: #2e7d32; }}
+  .breakdown-table .portal-name.p-foundit::before {{ background: #f57c00; }}
+  .breakdown-table .portal-name.p-iimjobs::before {{ background: #7b1fa2; }}
+  .breakdown-table .portal-name.p-unknown::before {{ background: #90a4ae; }}
+  .breakdown-table .num-cell {{ font-weight: 600; font-variant-numeric: tabular-nums; }}
+  .breakdown-table .grand-total td {{ font-weight: 700; background: #1565c0; color: #fff; border: none; }}
+  .breakdown-table .grand-total td:first-child {{ border-radius: 0 0 0 8px; }}
+  .breakdown-table .grand-total td:last-child {{ border-radius: 0 0 8px 0; }}
+  .bar-wrapper {{ display: inline-flex; align-items: center; gap: 6px; width: 100%; }}
+  .bar-track {{ flex: 1; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }}
+  .bar-fill {{ height: 100%; border-radius: 4px; transition: width .4s; }}
 </style>
 </head>
 <body>
@@ -486,22 +505,51 @@ def generate_dashboard_html():
   </div>
   <div class="section">
     <h2>Today's Fetch Breakdown</h2>
-    <table class="breakdown-table"><thead><tr><th>Portal</th><th>Total</th><th>SM</th><th>PM</th><th>DIR</th></tr></thead>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="todayBreakdownBody"></tbody></table>
   </div>
   <div class="section">
     <h2>All-Time Job Inventory</h2>
-    <table class="breakdown-table"><thead><tr><th>Portal</th><th>Total</th><th>SM</th><th>PM</th><th>DIR</th></tr></thead>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="allTimeBreakdownBody"></tbody></table>
   </div>
 </div>
 <script>
+function heat(val, max) {{
+  var ratio = max > 0 ? val / Math.max(1, max) : 0;
+  var r = Math.round(ratio < 0.5 ? 220 : 255 - (ratio - 0.5) * 70);
+  var g = Math.round(ratio < 0.5 ? 255 - (0.5 - ratio) * 70 : 220 - (ratio - 0.5) * 100);
+  var b = Math.round(ratio < 0.33 ? 200 : 120);
+  return 'background:' + (val > 0 ? 'rgba(' + r + ',' + g + ',' + b + ',0.5)' : 'transparent');
+}}
+
+function portalClass(name) {{
+  return 'p-' + (name ? name.toLowerCase() : 'unknown'); 
+}}
+
+function barColor(name) {{
+  var colors = {{naukri:'#e74c3c',linkedin:'#1565c0',adzuna:'#2e7d32',foundit:'#f57c00',iimjobs:'#7b1fa2'}};
+  return colors[portalClass(name).replace('p-','')] || '#90a4ae';
+}}
+
 function renderBreakdownTable(rows, grandTotal, tbodyId) {{
-  var html = '';
+  var html = '', maxTotal = Math.max(1, grandTotal.total);
   rows.forEach(function(r) {{
-    html += '<tr><td class="portal-name">' + r.portal + '</td><td>' + r.total + '</td><td>' + r.SM + '</td><td>' + r.PM + '</td><td>' + r.DIR + '</td></tr>';
+    var pc = r.total / maxTotal;
+    var pct = (pc * 100).toFixed(1);
+    bc = barColor(r.portal);
+    html += '<tr>'
+      + '<td class="portal-name ' + portalClass(r.portal) + '">' + r.portal + '</td>'
+      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '">' + r.total + '</td>'
+      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '">' + r.SM + '</td>'
+      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '">' + r.PM + '</td>'
+      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '">' + r.DIR + '</td>'
+      + '<td><div class="bar-wrapper"><div class="bar-track"><div class="bar-fill" style="width:' + (pc * 100) + '%;background:' + bc + '"></div></div><span style="font-size:11px;color:#666;white-space:nowrap;">' + pct + '%</span></div></td>'
+      + '</tr>';
   }});
-  html += '<tr class="grand-total"><td>Total</td><td>' + grandTotal.total + '</td><td>' + grandTotal.SM + '</td><td>' + grandTotal.PM + '</td><td>' + grandTotal.DIR + '</td></tr>';
+  html += '<tr class="grand-total"><td>Total</td>'
+    + '<td>' + grandTotal.total + '</td><td>' + grandTotal.SM + '</td><td>' + grandTotal.PM + '</td><td>' + grandTotal.DIR + '</td>'
+    + '<td>100%</td></tr>';
   document.getElementById(tbodyId).innerHTML = html;
 }}
 
