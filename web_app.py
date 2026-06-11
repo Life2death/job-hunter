@@ -457,6 +457,11 @@ def generate_dashboard_html():
   .week-day-num a {{ color: #1565c0; text-decoration:none; }}
   .week-day-num a:hover {{ text-decoration:underline; }}
   .track-breakdown {{ margin-top:4px; border-top:1px solid #d0d8f0; padding-top:4px; font-size:11px; line-height:1.5; color:#555; }}
+  .breakdown-table {{ width: auto; min-width: 400px; }}
+  .breakdown-table th, .breakdown-table td {{ padding: 5px 14px; text-align: center; }}
+  .breakdown-table th:first-child, .breakdown-table td:first-child {{ text-align: left; }}
+  .breakdown-table .portal-name {{ font-weight: 500; }}
+  .breakdown-table .grand-total td {{ font-weight: 700; border-top: 2px solid #ccc; }}
 </style>
 </head>
 <body>
@@ -479,8 +484,27 @@ def generate_dashboard_html():
     <table><thead><tr><th>Date</th><th>Companies</th></tr></thead>
     <tbody id="companiesBody"></tbody></table>
   </div>
+  <div class="section">
+    <h2>Today's Fetch Breakdown</h2>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th>Total</th><th>SM</th><th>PM</th><th>DIR</th></tr></thead>
+    <tbody id="todayBreakdownBody"></tbody></table>
+  </div>
+  <div class="section">
+    <h2>All-Time Job Inventory</h2>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th>Total</th><th>SM</th><th>PM</th><th>DIR</th></tr></thead>
+    <tbody id="allTimeBreakdownBody"></tbody></table>
+  </div>
 </div>
 <script>
+function renderBreakdownTable(rows, grandTotal, tbodyId) {{
+  var html = '';
+  rows.forEach(function(r) {{
+    html += '<tr><td class="portal-name">' + r.portal + '</td><td>' + r.total + '</td><td>' + r.SM + '</td><td>' + r.PM + '</td><td>' + r.DIR + '</td></tr>';
+  }});
+  html += '<tr class="grand-total"><td>Total</td><td>' + grandTotal.total + '</td><td>' + grandTotal.SM + '</td><td>' + grandTotal.PM + '</td><td>' + grandTotal.DIR + '</td></tr>';
+  document.getElementById(tbodyId).innerHTML = html;
+}}
+
 fetch('/api/jobs/stats')
   .then(function(r) {{ return r.json(); }})
   .then(function(stats) {{
@@ -514,6 +538,16 @@ fetch('/api/jobs/stats')
     document.getElementById('companiesBody').innerHTML = companiesHtml;
   }})
   .catch(function(e) {{ console.error('Failed to load stats', e); }});
+
+fetch('/api/jobs/breakdown?date=' + new Date().toISOString().slice(0,10))
+  .then(function(r) {{ return r.json(); }})
+  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'todayBreakdownBody'); }})
+  .catch(function(e) {{ console.error('Failed to load today breakdown', e); }});
+
+fetch('/api/jobs/breakdown')
+  .then(function(r) {{ return r.json(); }})
+  .then(function(data) {{ renderBreakdownTable(data.rows, data.grand_total, 'allTimeBreakdownBody'); }})
+  .catch(function(e) {{ console.error('Failed to load all-time breakdown', e); }});
 </script>
 </body>
 </html>"""
@@ -660,6 +694,49 @@ def api_jobs_stats():
             "week": added_week,
             "month": added_month,
         },
+    })
+
+
+@app.route("/api/jobs/breakdown")
+def api_jobs_breakdown():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"error": "Supabase not configured"}), 500
+    u = uid()
+    date_filter = request.args.get("date")
+
+    all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
+    portal_track = {}
+    for j in all_rows:
+        p = j.get("portal", "Unknown") or "Unknown"
+        t = j.get("track", "?") or "?"
+        if date_filter:
+            idate = _fmt(j.get("imported_date"))
+            if idate != date_filter:
+                continue
+        key = (p, t)
+        portal_track[key] = portal_track.get(key, 0) + 1
+
+    portal_map = {}
+    gt_sm = gt_pm = gt_dir = gt_total = 0
+    for (p, t), cnt in sorted(portal_track.items()):
+        portal_map.setdefault(p, {"SM": 0, "PM": 0, "DIR": 0, "total": 0})
+        if t in portal_map[p]:
+            portal_map[p][t] += cnt
+        portal_map[p]["total"] += cnt
+        if t == "SM": gt_sm += cnt
+        elif t == "PM": gt_pm += cnt
+        elif t == "DIR": gt_dir += cnt
+        gt_total += cnt
+
+    rows = [{"portal": p,
+             "SM": v["SM"], "PM": v["PM"], "DIR": v["DIR"],
+             "total": v["total"]}
+            for p, v in sorted(portal_map.items())]
+
+    return jsonify({
+        "rows": rows,
+        "grand_total": {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total},
     })
 
 
