@@ -1415,6 +1415,7 @@ if __name__ == "__main__":
 
     # Cloud DB import (lazy)
     cloud_db = None
+    could_not_connect = False
     if args.cloud or args.pull:
         try:
             from cloud_db import CloudDB, is_available
@@ -1422,10 +1423,19 @@ if __name__ == "__main__":
                 cloud_db = CloudDB(user_id=args.email)
             else:
                 print("[!] Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY env vars.")
-                exit(1)
+                could_not_connect = True
         except ImportError:
             print("[!] cloud_db.py not found. Run with local SQLite or add cloud_db.py.")
+            could_not_connect = True
+        except Exception as e:
+            print(f"[!] Supabase connection failed: {e}")
+            could_not_connect = True
+
+    if could_not_connect:
+        if args.pull:
             exit(1)
+        print("[~] Falling back to local SQLite mode")
+        args.cloud = False
 
     if args.pull:
         if not cloud_db:
@@ -1435,10 +1445,6 @@ if __name__ == "__main__":
         db.close()
         print(f"[OK] Pulled {n} jobs from cloud to local DB")
         exit(0)
-
-    if args.cloud:
-        if not cloud_db:
-            exit(1)
 
     if args.serve:
         serve_report(track_arg, portal_arg, args.min_fit, args.port)
@@ -1458,13 +1464,26 @@ if __name__ == "__main__":
         print(f"Multi-Portal Job Hunter — {TODAY}")
         print(f"Tracks: {tracks}  |  Portals: {portals}  |  Test: {args.test}")
 
-        results = run(tracks, portals, test_mode=args.test)
-        print_table(results, top_n=20)
+        try:
+            results = run(tracks, portals, test_mode=args.test)
+            print_table(results, top_n=20)
 
-        if not args.test:
-            save_csv(results, Path(args.out))
-            if args.cloud:
-                n = cloud_db.save_results(results)
-                print(f"[OK] Saved to Supabase: {n} rows")
-            else:
-                save_to_db(results)
+            if not args.test:
+                save_csv(results, Path(args.out))
+                if args.cloud:
+                    try:
+                        n = cloud_db.save_results(results)
+                        print(f"[OK] Saved to Supabase: {n} rows")
+                    except Exception as e:
+                        print(f"[!] Supabase save failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        print("[~] Falling back to local SQLite save")
+                        save_to_db(results)
+                else:
+                    save_to_db(results)
+        except Exception as e:
+            print(f"[!] Pipeline crashed: {e}")
+            import traceback
+            traceback.print_exc()
+            exit(1)
