@@ -864,6 +864,7 @@ def status_summary():
 # ─── Page routes ─────────────────────────────────────────
 
 @app.route("/")
+@app.route("/dashboard")
 def dashboard():
     html = generate_dashboard_html()
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
