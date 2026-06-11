@@ -27,6 +27,7 @@ import time
 import socket
 import httpcloak
 import os
+from cloud_db import CloudDB, is_available
 
 # Force IPv4 (avoid IPv6 hangs on some networks)
 socket.setdefaulttimeout(15)
@@ -845,7 +846,7 @@ def print_apply_summary(results: list[dict], tag: str = "APPLY"):
         print(f"\n  [!] Auth failures - session may have expired")
 
 
-def run_apply(track: str, limit: int, skip_search: bool = False):
+def run_apply(track: str, limit: int, skip_search: bool = False, cloud: CloudDB = None):
     profiles_path = Path("profiles.json")
     if not profiles_path.exists():
         print(f"[!] profiles.json not found. Create it with your Naukri credentials per track.")
@@ -942,8 +943,17 @@ def run_apply(track: str, limit: int, skip_search: bool = False):
         r["_apply_status"] = status
         applied_db.save(r["job_id"], track, status, r["title"], r["company"])
 
-        if status == "applied":
-            print("APPLIED")
+        if status in ("applied", "applied_redirect"):
+            print("APPLIED" if status == "applied" else "APPLIED (redirect)")
+            if cloud:
+                try:
+                    cloud_job_id = f"nk_{r['job_id']}"
+                    cloud._table().update({"status": "applied", "applied_date": str(TODAY)}) \
+                        .eq("user_id", cloud.user_id) \
+                        .eq("job_id", cloud_job_id) \
+                        .execute()
+                except Exception as e:
+                    print(f"  [!] Cloud sync failed: {e}")
         elif status == "questionnaire":
             print("SKIP (questionnaire)")
         elif status == "auth_failed":
@@ -959,7 +969,7 @@ def run_apply(track: str, limit: int, skip_search: bool = False):
     print_apply_summary(candidates)
 
 
-def run_batch_apply(track: str, batch_size: int, interval_minutes: int):
+def run_batch_apply(track: str, batch_size: int, interval_minutes: int, cloud: CloudDB = None):
     profiles_path = Path("profiles.json")
     if not profiles_path.exists():
         print("[!] profiles.json not found")
@@ -1013,12 +1023,17 @@ def run_batch_apply(track: str, batch_size: int, interval_minutes: int):
             db.update_job_status(j["job_id"], status)
             db.save(j["job_id"], track, status, j["title"], j["company"])
 
-            if status == "applied":
-                print("APPLIED")
-                applied_count += 1
-                batch_applied += 1
-            elif status == "applied_redirect":
-                print("APPLIED (redirect)")
+            if status in ("applied", "applied_redirect"):
+                print("APPLIED" if status == "applied" else "APPLIED (redirect)")
+                if cloud:
+                    try:
+                        cloud_job_id = f"nk_{j['job_id']}"
+                        cloud._table().update({"status": "applied", "applied_date": str(TODAY)}) \
+                            .eq("user_id", cloud.user_id) \
+                            .eq("job_id", cloud_job_id) \
+                            .execute()
+                    except Exception as e:
+                        print(f"  [!] Cloud sync failed: {e}")
                 applied_count += 1
                 batch_applied += 1
             elif status == "questionnaire":
@@ -1240,6 +1255,8 @@ if __name__ == "__main__":
                         help="Minutes between batches (default: 10)")
     parser.add_argument("--manual-report", action="store_true",
                         help="Generate manual apply report (questionnaire jobs with URLs)")
+    parser.add_argument("--cloud", action="store_true",
+                        help="Sync applied status to Supabase cloud DB")
     args = parser.parse_args()
 
     if args.stats:
@@ -1257,7 +1274,8 @@ if __name__ == "__main__":
         if args.track == "ALL":
             print("[!] --batch-apply requires a specific track (--track SM/PM/DIR)")
             exit(1)
-        run_batch_apply(args.track, args.batch_size, args.interval)
+        cloud = CloudDB() if args.cloud and is_available() else None
+        run_batch_apply(args.track, args.batch_size, args.interval, cloud=cloud)
         exit(0)
 
     if args.manual_report:
@@ -1270,7 +1288,8 @@ if __name__ == "__main__":
             print("[!] --apply requires a specific track (--track SM/PM/DIR), not ALL")
             print("    Example: python naukri_job_hunter.py --apply --track SM --limit 2")
             exit(1)
-        run_apply(args.track, limit=args.limit, skip_search=args.skip_search)
+        cloud = CloudDB() if args.cloud and is_available() else None
+        run_apply(args.track, limit=args.limit, skip_search=args.skip_search, cloud=cloud)
         exit(0)
 
     tracks = list(SEARCHES.keys()) if args.track == "ALL" else [args.track]
