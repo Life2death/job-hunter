@@ -109,11 +109,21 @@ class CloudDB:
 
         count = 0
         for row in new_rows:
-            self._table().insert(row).execute()
-            count += 1
+            try:
+                self._table().upsert(row, on_conflict="job_id").execute()
+                count += 1
+            except Exception:
+                try:
+                    self._table().update(row).eq("job_id", row["job_id"]).execute()
+                    count += 1
+                except Exception:
+                    pass
         for row in update_rows:
-            self._table().update(row).eq("job_id", row["job_id"]).execute()
-            count += 1
+            try:
+                self._table().update(row).eq("job_id", row["job_id"]).execute()
+                count += 1
+            except Exception:
+                pass
         return count
 
     def search(self, track: str = None, portal: str = None,
