@@ -4,7 +4,7 @@ Flask web service for interactive job report with multi-user auth.
 Serves dashboard + AG Grid job table with click-to-apply tracking.
 Users sign up with email/password, admin approves access.
 """
-import os, sys, json
+import os, sys, json, traceback
 from datetime import date, timedelta
 sys.stdout = sys.stderr
 TODAY = date.today()
@@ -866,17 +866,22 @@ def dashboard():
     today_data = all_data = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
     cloud = get_cloud()
     u = uid()
+    print(f"[dashboard] cloud={'yes' if cloud else 'no'} uid={u!r}", flush=True)
     if cloud and u:
         try:
             all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
+            print(f"[dashboard] fetched {len(all_rows)} rows for uid={u!r}", flush=True)
             if all_rows:
                 today_str = str(date.today())
                 today_rows, today_gt = compute_breakdown(all_rows, today_str)
                 all_rows_p, all_gt = compute_breakdown(all_rows)
                 today_data = {"rows": today_rows, "grand_total": today_gt}
                 all_data = {"rows": all_rows_p, "grand_total": all_gt}
+                print(f"[dashboard] breakdown today={today_gt} all={all_gt}", flush=True)
         except Exception:
-            pass
+            traceback.print_exc()
+    else:
+        print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
     html = generate_dashboard_html(today_data, all_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
