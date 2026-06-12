@@ -455,9 +455,11 @@ def compute_breakdown(all_rows, date_filter=None):
     return rows, {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total}
 
 
-def generate_dashboard_html(today_data=None, all_data=None):
-    today_json = json.dumps(today_data or {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}})
-    all_json = json.dumps(all_data or {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}})
+def generate_dashboard_html(today_data=None, week_data=None, all_data=None):
+    _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
+    today_json = json.dumps(today_data or _empty)
+    week_json  = json.dumps(week_data  or _empty)
+    all_json   = json.dumps(all_data   or _empty)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -539,6 +541,11 @@ def generate_dashboard_html(today_data=None, all_data=None):
     <tbody id="todayBreakdownBody"></tbody></table>
   </div>
   <div class="section">
+    <h2>Last 7 Days Breakdown</h2>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
+    <tbody id="weekBreakdownBody"></tbody></table>
+  </div>
+  <div class="section">
     <h2>All-Time Job Inventory</h2>
     <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="allTimeBreakdownBody"></tbody></table>
@@ -546,7 +553,8 @@ def generate_dashboard_html(today_data=None, all_data=None):
 </div>
 <script>
 var BREAKDOWN_TODAY = {today_json};
-var BREAKDOWN_ALL = {all_json};
+var BREAKDOWN_WEEK  = {week_json};
+var BREAKDOWN_ALL   = {all_json};
 function heat(val, max) {{
   var ratio = max > 0 ? val / Math.max(1, max) : 0;
   var r = Math.round(ratio < 0.5 ? 220 : 255 - (ratio - 0.5) * 70);
@@ -634,7 +642,8 @@ fetch('/api/jobs/stats')
 
 var todayStr = new Date().toISOString().slice(0,10);
 renderBreakdownTable(BREAKDOWN_TODAY.rows, BREAKDOWN_TODAY.grand_total, 'todayBreakdownBody', todayStr);
-renderBreakdownTable(BREAKDOWN_ALL.rows, BREAKDOWN_ALL.grand_total, 'allTimeBreakdownBody', null);
+renderBreakdownTable(BREAKDOWN_WEEK.rows,  BREAKDOWN_WEEK.grand_total,  'weekBreakdownBody',  null);
+renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTimeBreakdownBody', null);
 </script>
 </body>
 </html>"""
@@ -863,7 +872,8 @@ def status_summary():
 @app.route("/")
 @app.route("/dashboard")
 def dashboard():
-    today_data = all_data = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
+    _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
+    today_data = week_data = all_data = _empty
     cloud = get_cloud()
     u = uid()
     print(f"[dashboard] cloud={'yes' if cloud else 'no'} uid={u!r}", flush=True)
@@ -873,16 +883,21 @@ def dashboard():
             print(f"[dashboard] fetched {len(all_rows)} rows for uid={u!r}", flush=True)
             if all_rows:
                 today_str = str(date.today())
+                week_start = str(date.today() - timedelta(days=6))
+                week_rows = [r for r in all_rows
+                             if week_start <= _fmt(r.get("imported_date", "")) <= today_str]
                 today_rows, today_gt = compute_breakdown(all_rows, today_str)
-                all_rows_p, all_gt = compute_breakdown(all_rows)
+                week_rows_p, week_gt = compute_breakdown(week_rows)
+                all_rows_p, all_gt   = compute_breakdown(all_rows)
                 today_data = {"rows": today_rows, "grand_total": today_gt}
-                all_data = {"rows": all_rows_p, "grand_total": all_gt}
-                print(f"[dashboard] breakdown today={today_gt} all={all_gt}", flush=True)
+                week_data  = {"rows": week_rows_p, "grand_total": week_gt}
+                all_data   = {"rows": all_rows_p,  "grand_total": all_gt}
+                print(f"[dashboard] breakdown today={today_gt} week={week_gt} all={all_gt}", flush=True)
         except Exception:
             traceback.print_exc()
     else:
         print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
-    html = generate_dashboard_html(today_data, all_data)
+    html = generate_dashboard_html(today_data, week_data, all_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
