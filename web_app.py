@@ -521,7 +521,7 @@ def generate_dashboard_html(today_data=None, all_data=None):
     <div class="card"><div class="card-count" id="countToday">-</div><div class="card-label">Applied Today</div></div>
     <div class="card"><div class="card-count" id="countYesterday">-</div><div class="card-label">Applied Yesterday</div></div>
     <div class="card"><div class="card-count" id="addedToday">-</div><div class="card-label">Added Today</div></div>
-    <div class="card"><div class="card-count" id="addedWeek">-</div><div class="card-label">Added This Week</div></div>
+    <div class="card"><div class="card-count" id="addedWeek">-</div><div class="card-label">Added Last 7 Days</div></div>
     <div class="card"><div class="card-count" id="addedMonth">-</div><div class="card-label">Added This Month</div></div>
   </div>
   <div class="section">
@@ -720,25 +720,28 @@ def api_jobs_stats():
     today_str = str(today)
     yesterday_str = str(today - timedelta(days=1))
 
-    # Applied jobs with track for breakdown
-    applied = _fetch_all(cloud, u, "applied_date, company, track, status", "applied")
-
-    # Normalize applied_date to string so comparisons with == always work
-    for j in applied:
+    # Single fetch for all rows — split into applied vs all in Python
+    all_rows = _fetch_all(cloud, u, "imported_date, applied_date, company, track, status")
+    for j in all_rows:
         j["applied_date"] = _fmt(j.get("applied_date"))
+
+    applied = [j for j in all_rows if j.get("status") == "applied"]
 
     today_count = sum(1 for j in applied if j.get("applied_date") == today_str)
     yesterday_count = sum(1 for j in applied if j.get("applied_date") == yesterday_str)
 
+    # Sun–Sat week used for the 7-day grid display
     days_since_sunday = (today.weekday() + 1) % 7
     sunday = today - timedelta(days=days_since_sunday)
 
-    # Track counters per day
+    # Pre-compute applied counts per date in one pass
+    applied_by_date = {}
     track_by_date = {}
     for j in applied:
         ad = j.get("applied_date", "")
         tr = j.get("track", "?") or "?"
         if ad:
+            applied_by_date[ad] = applied_by_date.get(ad, 0) + 1
             track_by_date.setdefault(ad, {})
             track_by_date[ad][tr] = track_by_date[ad].get(tr, 0) + 1
 
@@ -746,16 +749,13 @@ def api_jobs_stats():
     for i in range(7):
         d = sunday + timedelta(days=i)
         ds = str(d)
-        week.append({
-            "date": ds,
-            "count": sum(1 for j in applied if j.get("applied_date") == ds),
-            "tracks": track_by_date.get(ds, {}),
-        })
+        week.append({"date": ds, "count": applied_by_date.get(ds, 0), "tracks": track_by_date.get(ds, {})})
 
     companies_by_date = {}
+    cutoff = str(today - timedelta(days=14))
     for j in applied:
         ad = j.get("applied_date", "")
-        if ad and ad >= str(today - timedelta(days=14)):
+        if ad and ad >= cutoff:
             companies_by_date.setdefault(ad, set()).add(j.get("company", ""))
 
     companies_per_day = [
@@ -763,12 +763,12 @@ def api_jobs_stats():
         for d, c in sorted(companies_by_date.items(), reverse=True)
     ]
 
-    # All jobs for added counts (by imported_date)
-    all_rows = _fetch_all(cloud, u, "imported_date")
+    # Added counts by imported_date — rolling 7 days for week, calendar month for month
+    rolling_week_start = str(today - timedelta(days=6))
     imported_dates = [_fmt(j.get("imported_date")) for j in all_rows if _fmt(j.get("imported_date"))]
 
     added_today = sum(1 for d in imported_dates if d == today_str)
-    added_week = sum(1 for d in imported_dates if str(sunday) <= d <= today_str)
+    added_week = sum(1 for d in imported_dates if rolling_week_start <= d <= today_str)
     added_month = sum(1 for d in imported_dates if d.startswith(today_str[:7]))
 
     return jsonify({
