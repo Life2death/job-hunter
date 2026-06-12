@@ -455,11 +455,11 @@ def compute_breakdown(all_rows, date_filter=None):
     return rows, {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total}
 
 
-def generate_dashboard_html(today_data=None, week_data=None, all_data=None):
+def generate_dashboard_html(today_data=None, week_daily=None, all_data=None):
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
-    today_json = json.dumps(today_data or _empty)
-    week_json  = json.dumps(week_data  or _empty)
-    all_json   = json.dumps(all_data   or _empty)
+    today_json      = json.dumps(today_data  or _empty)
+    week_daily_json = json.dumps(week_daily  or [])
+    all_json        = json.dumps(all_data    or _empty)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -542,6 +542,7 @@ def generate_dashboard_html(today_data=None, week_data=None, all_data=None):
   </div>
   <div class="section">
     <h2>Last 7 Days Breakdown</h2>
+    <div class="day-tabs" id="dayTabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
     <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="weekBreakdownBody"></tbody></table>
   </div>
@@ -552,9 +553,9 @@ def generate_dashboard_html(today_data=None, week_data=None, all_data=None):
   </div>
 </div>
 <script>
-var BREAKDOWN_TODAY = {today_json};
-var BREAKDOWN_WEEK  = {week_json};
-var BREAKDOWN_ALL   = {all_json};
+var BREAKDOWN_TODAY      = {today_json};
+var BREAKDOWN_WEEK_DAILY = {week_daily_json};
+var BREAKDOWN_ALL        = {all_json};
 function heat(val, max) {{
   var ratio = max > 0 ? val / Math.max(1, max) : 0;
   var r = Math.round(ratio < 0.5 ? 220 : 255 - (ratio - 0.5) * 70);
@@ -642,8 +643,41 @@ fetch('/api/jobs/stats')
 
 var todayStr = new Date().toISOString().slice(0,10);
 renderBreakdownTable(BREAKDOWN_TODAY.rows, BREAKDOWN_TODAY.grand_total, 'todayBreakdownBody', todayStr);
-renderBreakdownTable(BREAKDOWN_WEEK.rows,  BREAKDOWN_WEEK.grand_total,  'weekBreakdownBody',  null);
 renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTimeBreakdownBody', null);
+
+// Day-by-day 7-day tabs
+(function() {{
+  var DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var tabsEl = document.getElementById('dayTabs');
+  var activeIdx = BREAKDOWN_WEEK_DAILY.length - 1;
+
+  function dateToDay(ds) {{
+    var d = new Date(ds + 'T00:00:00');
+    return DAY_NAMES[d.getDay()];
+  }}
+
+  function renderDayTab(idx) {{
+    activeIdx = idx;
+    var day = BREAKDOWN_WEEK_DAILY[idx];
+    renderBreakdownTable(day.rows, day.grand_total, 'weekBreakdownBody', day.date);
+    tabsEl.querySelectorAll('.day-tab-btn').forEach(function(b, i) {{
+      b.className = 'day-tab-btn tab' + (i === idx ? ' tab-active' : '');
+    }});
+  }}
+
+  BREAKDOWN_WEEK_DAILY.forEach(function(day, i) {{
+    var btn = document.createElement('button');
+    var label = dateToDay(day.date) + ' ' + day.date.slice(5);
+    var tot = day.grand_total.total;
+    btn.textContent = label + (tot ? ' (' + tot + ')' : ' (0)');
+    btn.className = 'day-tab-btn tab' + (i === activeIdx ? ' tab-active' : '');
+    btn.style.cssText = 'border:none;cursor:pointer;font-size:12px;padding:5px 12px;';
+    btn.onclick = function() {{ renderDayTab(i); }};
+    tabsEl.appendChild(btn);
+  }});
+
+  if (BREAKDOWN_WEEK_DAILY.length) renderDayTab(activeIdx);
+}})();
 </script>
 </body>
 </html>"""
@@ -873,7 +907,8 @@ def status_summary():
 @app.route("/dashboard")
 def dashboard():
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
-    today_data = week_data = all_data = _empty
+    today_data = all_data = _empty
+    week_daily = []
     cloud = get_cloud()
     u = uid()
     print(f"[dashboard] cloud={'yes' if cloud else 'no'} uid={u!r}", flush=True)
@@ -882,22 +917,30 @@ def dashboard():
             all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
             print(f"[dashboard] fetched {len(all_rows)} rows for uid={u!r}", flush=True)
             if all_rows:
-                today_str = str(date.today())
-                week_start = str(date.today() - timedelta(days=6))
-                week_rows = [r for r in all_rows
-                             if week_start <= _fmt(r.get("imported_date", "")) <= today_str]
+                today = date.today()
+                today_str = str(today)
+                _day_names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
                 today_rows, today_gt = compute_breakdown(all_rows, today_str)
-                week_rows_p, week_gt = compute_breakdown(week_rows)
                 all_rows_p, all_gt   = compute_breakdown(all_rows)
                 today_data = {"rows": today_rows, "grand_total": today_gt}
-                week_data  = {"rows": week_rows_p, "grand_total": week_gt}
                 all_data   = {"rows": all_rows_p,  "grand_total": all_gt}
-                print(f"[dashboard] breakdown today={today_gt} week={week_gt} all={all_gt}", flush=True)
+                week_daily = []
+                for i in range(6, -1, -1):
+                    d = today - timedelta(days=i)
+                    d_str = str(d)
+                    day_rows_p, day_gt = compute_breakdown(all_rows, d_str)
+                    week_daily.append({
+                        "date": d_str,
+                        "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": day_rows_p,
+                        "grand_total": day_gt,
+                    })
+                print(f"[dashboard] breakdown today={today_gt} all={all_gt}", flush=True)
         except Exception:
             traceback.print_exc()
     else:
         print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
-    html = generate_dashboard_html(today_data, week_data, all_data)
+    html = generate_dashboard_html(today_data, week_daily, all_data)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
