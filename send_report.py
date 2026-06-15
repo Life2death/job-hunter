@@ -111,22 +111,28 @@ def build_html(subject, today_data, week_data, applied_data, top_jobs):
             top_html += f'<td style="padding:4px 10px;border-bottom:1px solid #e0e0e0;background:{c}">{j.get("track","")}</td>'
             top_html += "</tr>"
 
+    def _track_total(grid, track):
+        return sum(p.get(track, 0) for p in grid.values())
+
     week_html = ""
     week_total = 0
+    week_track_totals = {t: 0 for t in TRACKS}
     if week_data:
         for day_label, day_grid in sorted(week_data.items()):
             week_html += "<tr>"
-            d_total = sum(day_grid.get(t, 0) for t in TRACKS)
+            day_track = {t: _track_total(day_grid, t) for t in TRACKS}
+            d_total = sum(day_track.values())
             week_total += d_total
             week_html += f'<td style="padding:4px 10px;border-bottom:1px solid #e0e0e0;font-weight:600">{day_label}</td>'
             for t in TRACKS:
-                week_html += f'<td style="padding:4px 10px;border-bottom:1px solid #e0e0e0;text-align:center">{day_grid.get(t, 0)}</td>'
+                week_html += f'<td style="padding:4px 10px;border-bottom:1px solid #e0e0e0;text-align:center">{day_track[t]}</td>'
+                week_track_totals[t] += day_track[t]
             week_html += f'<td style="padding:4px 10px;border-bottom:1px solid #e0e0e0;text-align:center;font-weight:700">{d_total}</td>'
             week_html += "</tr>"
-        week_html += f'<tr style="background:#f0f4ff;font-weight:700">'
-        week_html += f'<td style="padding:4px 10px;border-bottom:2px solid #4a90d9">7-Day Total</td>'
+        week_html += '<tr style="background:#f0f4ff;font-weight:700">'
+        week_html += '<td style="padding:4px 10px;border-bottom:2px solid #4a90d9">7-Day Total</td>'
         for t in TRACKS:
-            week_html += f'<td style="padding:4px 10px;border-bottom:2px solid #4a90d9;text-align:center">{sum(day_grid.get(t, 0) for day_grid in week_data.values())}</td>'
+            week_html += f'<td style="padding:4px 10px;border-bottom:2px solid #4a90d9;text-align:center">{week_track_totals[t]}</td>'
         week_html += f'<td style="padding:4px 10px;border-bottom:2px solid #4a90d9;text-align:center">{week_total}</td>'
         week_html += "</tr>"
 
