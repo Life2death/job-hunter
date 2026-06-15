@@ -31,6 +31,8 @@ jobs:
       ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
       ADZUNA_API_KEY: ${{ secrets.ADZUNA_API_KEY }}
       USER_EMAIL: ${{ secrets.USER_EMAIL }}
+      EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -61,16 +63,4 @@ jobs:
           if-no-files-found: ignore
 
       - name: Send email report
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_ADDRESS }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: Job Hunter Report — ${{ github.workflow_ref }}
-          to: ${{ secrets.EMAIL_ADDRESS }}
-          from: Job Hunter Bot
-          body: |
-            Pipeline run complete.
-            Results saved to Supabase.
-            View: https://job-hunter-x5l1.onrender.com
+        run: python send_report.py
