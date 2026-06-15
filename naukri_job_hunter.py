@@ -28,6 +28,7 @@ import socket
 import httpcloak
 import os
 from cloud_db import CloudDB, is_available
+from functools import lru_cache
 
 # Force IPv4 (avoid IPv6 hangs on some networks)
 socket.setdefaulttimeout(15)
@@ -71,6 +72,45 @@ AGING_MAX   = 5    # 4-5 days → AGING, -10 penalty
 # >5 days → excluded
 
 COMP_FLOOR  = 4000000   # 40 LPA in INR
+
+
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.json"
+    if not cfg_path.exists():
+        return {}
+    raw = cfg_path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"_raw": raw}
+
+CONFIG = _load_config()
+
+def _cookie(key):
+    fpath = Path(__file__).parent / f".{key}_cookie.txt"
+    if fpath.exists():
+        val = fpath.read_text(encoding="utf-8").strip()
+        for prefix in ("1st ", "--"):
+            if val.startswith(prefix):
+                val = val[len(prefix):].lstrip()
+        return val
+    raw = CONFIG.get("_raw")
+    if raw:
+        pat = f'"{key}": "'
+        i = raw.find(pat)
+        if i >= 0:
+            i += len(pat)
+            j = raw.find('",\n    "', i)
+            if j > i:
+                val = raw[i:j]
+                for prefix in ("1st ", "--"):
+                    if val.startswith(prefix):
+                        val = val[len(prefix):].lstrip()
+                return val
+    env_val = os.environ.get(f"{key.upper()}_COOKIE")
+    if env_val:
+        return env_val
+    return CONFIG.get("cookies", {}).get(key, "")
 
 # ─── Scoring rubrics (max points per factor) ──────────────────────────────────
 
@@ -291,7 +331,7 @@ def generate_nkparam(page_type: str = "srp") -> str:
     encrypted = cipher.encrypt(plaintext.encode('utf-8'))
     return base64.b64encode(encrypted).decode('utf-8')
 
-HEADERS = {
+HEADERS_TEMPLATE = {
     "accept": "application/json",
     "appid": "109",
     "clientid": "d3skt0p",
@@ -304,18 +344,22 @@ HEADERS = {
     ),
     "gid": "LOCATION,INDUSTRY,EDUCATION,FAREA_ROLE",
     "nkparam": "",  # filled per-request
-    # ── INSERT YOUR NAUKRI SESSION COOKIE BELOW ──────────────────────────────
-    # How to get it:
-    #   1. Open Chrome → naukri.com → log in
-    #   2. Open DevTools (F12) → Network tab → reload page
-    #   3. Click any naukri.com request → Headers → Request Headers → Copy the full 'cookie' value
-    #   4. Paste it here (replace the placeholder string)
-    # The cookie refreshes every ~7 days; update it when you get 403 errors.
-    "cookie": "PC396725C870D4C446F045BA5C8C125F7~YAAQEwkgF5ZMZ4WeAQAA3znrmwABO1CAd8at/JO7gPIUq35du5BmLdoJTLoSt+6M110zrUalXZf4fAB49limjzlFP2Ykx47Fo/uZedDuAD7MaPo1KecoBWxjCdLqguFJprjMzvtULjSKODI+iXbTh4KTUK6KiV1PqizPt5o0NFypiTuHnZpryp58rUAweKi2S9rHDpwzXJ7gVeCRV8a4Uxm/NTRayY4HoYihfmad2Kteszo2rO8Vi23syj6rCRjdOAE",
 }
+
+# Cookie is loaded on demand from env var, .naukri_cookie.txt, or config.json.
+# Set NAUKRI_COOKIE env var (preferred) or create .naukri_cookie.txt in the repo root.
+# Get it from Chrome DevTools after logging into naukri.com.
+# The cookie refreshes every ~7 days; update when you get 403 errors.
+def _get_naukri_cookie():
+    return os.environ.get("NAUKRI_COOKIE") or _cookie("naukri")
 
 
 def fetch_page(keyword: str, location: str, page: int = 1, results_per_page: int = 20) -> list:
+    cookie = _get_naukri_cookie()
+    if not cookie:
+        print(f"  [!] Naukri cookie not found. Set NAUKRI_COOKIE env var or create .naukri_cookie.txt")
+        return []
+
     params = {
         "noOfResults": str(results_per_page),
         "urlType": "search_by_keyword",
@@ -327,14 +371,15 @@ def fetch_page(keyword: str, location: str, page: int = 1, results_per_page: int
         "src": "jobsearchDesk",
         "latLong": "",
     }
-    headers = HEADERS.copy()
+    headers = HEADERS_TEMPLATE.copy()
     headers["nkparam"] = generate_nkparam("srp")
+    headers["cookie"] = cookie
     try:
         resp = requests.get(BASE_URL, headers=headers, params=params, timeout=15)
         if resp.status_code == 200:
             return resp.json().get("jobDetails", [])
         elif resp.status_code == 403:
-            print(f"  [!] 403 Forbidden - your Naukri cookie has expired. Update HEADERS['cookie'].")
+            print(f"  [!] 403 Forbidden - your Naukri cookie has expired. Update NAUKRI_COOKIE.")
             return []
         else:
             print(f"  [!] HTTP {resp.status_code} for '{keyword}' / {location}")
