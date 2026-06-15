@@ -429,13 +429,13 @@ function fetchRemaining() {{
 </html>"""
 
 
-def compute_breakdown(all_rows, date_filter=None):
+def compute_breakdown(all_rows, date_filter=None, date_field="imported_date"):
     portal_track = {}
     for j in all_rows:
         p = j.get("portal", "Unknown") or "Unknown"
         t = j.get("track", "?") or "?"
         if date_filter:
-            idate = _fmt(j.get("imported_date"))
+            idate = _fmt(j.get(date_field))
             if idate != date_filter:
                 continue
         key = (p, t)
@@ -455,11 +455,14 @@ def compute_breakdown(all_rows, date_filter=None):
     return rows, {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total}
 
 
-def generate_dashboard_html(today_data=None, week_daily=None, all_data=None):
+def generate_dashboard_html(today_data=None, today_applied=None, week_daily=None, week_daily_applied=None, all_data=None, all_applied=None):
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
-    today_json      = json.dumps(today_data  or _empty)
-    week_daily_json = json.dumps(week_daily  or [])
-    all_json        = json.dumps(all_data    or _empty)
+    today_json          = json.dumps(today_data or _empty)
+    today_applied_json  = json.dumps(today_applied or _empty)
+    week_daily_json     = json.dumps(week_daily or [])
+    week_daily_applied_json = json.dumps(week_daily_applied or [])
+    all_json            = json.dumps(all_data or _empty)
+    all_applied_json    = json.dumps(all_applied or _empty)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -537,25 +540,28 @@ def generate_dashboard_html(today_data=None, week_daily=None, all_data=None):
   </div>
   <div class="section">
     <h2>Today's Fetch Breakdown</h2>
-    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">SM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">PM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">DIR<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="todayBreakdownBody"></tbody></table>
   </div>
   <div class="section">
     <h2>Last 7 Days Breakdown</h2>
     <div class="day-tabs" id="dayTabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">SM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">PM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">DIR<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="weekBreakdownBody"></tbody></table>
   </div>
   <div class="section">
     <h2>All-Time Job Inventory</h2>
-    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total</th><th style="text-align:center;">SM</th><th style="text-align:center;">PM</th><th style="text-align:center;">DIR</th><th style="text-align:center;">Proportion</th></tr></thead>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">SM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">PM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">DIR<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="allTimeBreakdownBody"></tbody></table>
   </div>
 </div>
 <script>
-var BREAKDOWN_TODAY      = {today_json};
-var BREAKDOWN_WEEK_DAILY = {week_daily_json};
-var BREAKDOWN_ALL        = {all_json};
+var BREAKDOWN_TODAY          = {today_json};
+var BREAKDOWN_TODAY_APPLIED  = {today_applied_json};
+var BREAKDOWN_WEEK_DAILY     = {week_daily_json};
+var BREAKDOWN_WEEK_DAILY_APPLIED = {week_daily_applied_json};
+var BREAKDOWN_ALL            = {all_json};
+var BREAKDOWN_ALL_APPLIED    = {all_applied_json};
 function heat(val, max) {{
   var ratio = max > 0 ? val / Math.max(1, max) : 0;
   var r = Math.round(ratio < 0.5 ? 220 : 255 - (ratio - 0.5) * 70);
@@ -579,30 +585,56 @@ function qs(params) {{
   return '/jobs' + (p.length ? '?' + p.join('&') : '');
 }}
 
-function renderBreakdownTable(rows, grandTotal, tbodyId, dateFilter) {{
+function renderBreakdownTable(rows, grandTotal, tbodyId, dateFilter, appliedRows, appliedGrandTotal, appliedDateFilter) {{
   function a(href, label) {{
     return '<a target="_blank" rel="noopener" href="' + href + '" style="color:inherit;text-decoration:none;">' + label + '</a>';
   }}
+  var dual = appliedRows && appliedGrandTotal;
+  var lookup = {{}};
+  if (dual) {{
+    appliedRows.forEach(function(r) {{ lookup[r.portal] = r; }});
+  }}
+  function v(n) {{ return n || 0; }}
   var html = '', maxTotal = Math.max(1, grandTotal.total);
   rows.forEach(function(r) {{
     var pc = r.total / maxTotal;
     var pct = (pc * 100).toFixed(1);
     bc = barColor(r.portal);
+    var ar = dual ? (lookup[r.portal] || {{SM:0,PM:0,DIR:0,total:0}}) : null;
+    var portalLink = qs({{portal:r.portal,imported_date:dateFilter}});
+    var appPortalLink = dual ? qs({{portal:r.portal,status:'applied',applied_date:appliedDateFilter}}) : '';
+    function cell(fetVal, appVal, track) {{
+      var h = heat(v(fetVal), fetchedMax);
+      if (!dual) return '<td class="num-cell" style="' + h + '">' + a(qs({{portal:r.portal,track:track,imported_date:dateFilter}}), v(fetVal)) + '</td>';
+      var fv = v(fetVal);
+      var av = v(appVal);
+      var appLink = track ? qs({{portal:r.portal,track:track,status:'applied',applied_date:appliedDateFilter}}) : appPortalLink;
+      return '<td class="num-cell" style="' + h + '">' + a(qs({{portal:r.portal,track:track,imported_date:dateFilter}}), fv) + ' | ' + a(appLink, av) + '</td>';
+    }}
+    var fetchedMax = grandTotal.total;
     html += '<tr>'
-      + '<td class="portal-name ' + portalClass(r.portal) + '">' + a(qs({{portal:r.portal,imported_date:dateFilter}}), r.portal) + '</td>'
-      + '<td class="num-cell" style="' + heat(r.total, grandTotal.total) + '">' + a(qs({{portal:r.portal,imported_date:dateFilter}}), r.total) + '</td>'
-      + '<td class="num-cell" style="' + heat(r.SM, grandTotal.SM) + '">' + a(qs({{portal:r.portal,track:'SM',imported_date:dateFilter}}), r.SM) + '</td>'
-      + '<td class="num-cell" style="' + heat(r.PM, grandTotal.PM) + '">' + a(qs({{portal:r.portal,track:'PM',imported_date:dateFilter}}), r.PM) + '</td>'
-      + '<td class="num-cell" style="' + heat(r.DIR, grandTotal.DIR) + '">' + a(qs({{portal:r.portal,track:'DIR',imported_date:dateFilter}}), r.DIR) + '</td>'
+      + '<td class="portal-name ' + portalClass(r.portal) + '">' + a(portalLink, r.portal) + '</td>'
+      + cell(r.total, ar ? ar.total : 0, '')
+      + cell(r.SM, ar ? ar.SM : 0, 'SM')
+      + cell(r.PM, ar ? ar.PM : 0, 'PM')
+      + cell(r.DIR, ar ? ar.DIR : 0, 'DIR')
       + '<td><div class="bar-wrapper"><div class="bar-track"><div class="bar-fill" style="width:' + (pc * 100) + '%;background:' + bc + '"></div></div><span style="font-size:11px;color:#666;white-space:nowrap;">' + pct + '%</span></div></td>'
       + '</tr>';
   }});
   var g = qs({{imported_date:dateFilter}});
+  var ga = dual && appliedDateFilter ? qs({{status:'applied',applied_date:appliedDateFilter}}) : '';
+  function gtCell(fetVal, appVal, track) {{
+    if (!dual) return '<td>' + a(g, v(fetVal)) + '</td>';
+    var fv = v(fetVal);
+    var av = v(appVal);
+    var appLink = track ? qs({{track:track,status:'applied',applied_date:appliedDateFilter}}) : ga;
+    return '<td>' + a(g, fv) + ' | ' + a(appLink, av) + '</td>';
+  }}
   html += '<tr class="grand-total"><td>' + a(g, 'Total') + '</td>'
-    + '<td>' + a(g, grandTotal.total) + '</td>'
-    + '<td>' + a(qs({{track:'SM',imported_date:dateFilter}}), grandTotal.SM) + '</td>'
-    + '<td>' + a(qs({{track:'PM',imported_date:dateFilter}}), grandTotal.PM) + '</td>'
-    + '<td>' + a(qs({{track:'DIR',imported_date:dateFilter}}), grandTotal.DIR) + '</td>'
+    + gtCell(grandTotal.total, dual ? v(appliedGrandTotal.total) : 0, '')
+    + gtCell(grandTotal.SM, dual ? v(appliedGrandTotal.SM) : 0, 'SM')
+    + gtCell(grandTotal.PM, dual ? v(appliedGrandTotal.PM) : 0, 'PM')
+    + gtCell(grandTotal.DIR, dual ? v(appliedGrandTotal.DIR) : 0, 'DIR')
     + '<td>100%</td></tr>';
   document.getElementById(tbodyId).innerHTML = html;
 }}
@@ -642,8 +674,10 @@ fetch('/api/jobs/stats')
   .catch(function(e) {{ console.error('Failed to load stats', e); }});
 
 var todayStr = new Date().toISOString().slice(0,10);
-renderBreakdownTable(BREAKDOWN_TODAY.rows, BREAKDOWN_TODAY.grand_total, 'todayBreakdownBody', todayStr);
-renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTimeBreakdownBody', null);
+renderBreakdownTable(BREAKDOWN_TODAY.rows, BREAKDOWN_TODAY.grand_total, 'todayBreakdownBody', todayStr,
+  BREAKDOWN_TODAY_APPLIED.rows, BREAKDOWN_TODAY_APPLIED.grand_total, todayStr);
+renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTimeBreakdownBody', null,
+  BREAKDOWN_ALL_APPLIED.rows,   BREAKDOWN_ALL_APPLIED.grand_total,   null);
 
 // Day-by-day 7-day tabs
 (function() {{
@@ -659,7 +693,9 @@ renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTime
   function renderDayTab(idx) {{
     activeIdx = idx;
     var day = BREAKDOWN_WEEK_DAILY[idx];
-    renderBreakdownTable(day.rows, day.grand_total, 'weekBreakdownBody', day.date);
+    var dayApp = BREAKDOWN_WEEK_DAILY_APPLIED[idx] || {{rows:[],grand_total:{{SM:0,PM:0,DIR:0,total:0}}}};
+    renderBreakdownTable(day.rows, day.grand_total, 'weekBreakdownBody', day.date,
+      dayApp.rows, dayApp.grand_total, day.date);
     tabsEl.querySelectorAll('.day-tab-btn').forEach(function(b, i) {{
       b.className = 'day-tab-btn tab' + (i === idx ? ' tab-active' : '');
     }});
@@ -669,7 +705,9 @@ renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTime
     var btn = document.createElement('button');
     var label = dateToDay(day.date) + ' ' + day.date.slice(5);
     var tot = day.grand_total.total;
-    btn.textContent = label + (tot ? ' (' + tot + ')' : ' (0)');
+    var appDay = BREAKDOWN_WEEK_DAILY_APPLIED[i] || {{grand_total:{{total:0}}}};
+    var appTot = appDay.grand_total.total;
+    btn.textContent = label + (tot || appTot ? ' (' + tot + ' fet, ' + appTot + ' app)' : ' (0)');
     btn.className = 'day-tab-btn tab' + (i === activeIdx ? ' tab-active' : '');
     btn.style.cssText = 'border:none;cursor:pointer;font-size:12px;padding:5px 12px;';
     btn.onclick = function() {{ renderDayTab(i); }};
@@ -907,24 +945,36 @@ def status_summary():
 @app.route("/dashboard")
 def dashboard():
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
-    today_data = all_data = _empty
-    week_daily = []
+    today_data = today_applied = all_data = all_applied = _empty
+    week_daily = week_daily_applied = []
     cloud = get_cloud()
     u = uid()
     print(f"[dashboard] cloud={'yes' if cloud else 'no'} uid={u!r}", flush=True)
     if cloud and u:
         try:
-            all_rows = _fetch_all(cloud, u, "portal, track, imported_date")
+            all_rows = _fetch_all(cloud, u, "portal, track, imported_date, status, applied_date")
             print(f"[dashboard] fetched {len(all_rows)} rows for uid={u!r}", flush=True)
             if all_rows:
                 today = date.today()
                 today_str = str(today)
                 _day_names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                applied_rows = [r for r in all_rows if r.get("status") == "applied"]
+
+                # Today
                 today_rows, today_gt = compute_breakdown(all_rows, today_str)
-                all_rows_p, all_gt   = compute_breakdown(all_rows)
+                today_app_rows, today_app_gt = compute_breakdown(applied_rows, today_str, date_field="applied_date")
                 today_data = {"rows": today_rows, "grand_total": today_gt}
+                today_applied = {"rows": today_app_rows, "grand_total": today_app_gt}
+
+                # All time
+                all_rows_p, all_gt   = compute_breakdown(all_rows)
+                all_app_rows, all_app_gt = compute_breakdown(applied_rows, date_field="applied_date")
                 all_data   = {"rows": all_rows_p,  "grand_total": all_gt}
+                all_applied = {"rows": all_app_rows, "grand_total": all_app_gt}
+
+                # Week daily
                 week_daily = []
+                week_daily_applied = []
                 for i in range(6, -1, -1):
                     d = today - timedelta(days=i)
                     d_str = str(d)
@@ -935,12 +985,21 @@ def dashboard():
                         "rows": day_rows_p,
                         "grand_total": day_gt,
                     })
+                    day_app_rows, day_app_gt = compute_breakdown(applied_rows, d_str, date_field="applied_date")
+                    week_daily_applied.append({
+                        "date": d_str,
+                        "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": day_app_rows,
+                        "grand_total": day_app_gt,
+                    })
                 print(f"[dashboard] breakdown today={today_gt} all={all_gt}", flush=True)
         except Exception:
             traceback.print_exc()
     else:
         print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
-    html = generate_dashboard_html(today_data, week_daily, all_data)
+    html = generate_dashboard_html(today_data=today_data, today_applied=today_applied,
+                                   week_daily=week_daily, week_daily_applied=week_daily_applied,
+                                   all_data=all_data, all_applied=all_applied)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
