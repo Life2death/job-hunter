@@ -455,12 +455,14 @@ def compute_breakdown(all_rows, date_filter=None, date_field="imported_date"):
     return rows, {"SM": gt_sm, "PM": gt_pm, "DIR": gt_dir, "total": gt_total}
 
 
-def generate_dashboard_html(today_data=None, today_applied=None, week_daily=None, week_daily_applied=None, all_data=None, all_applied=None):
+def generate_dashboard_html(today_data=None, today_applied=None, week_daily=None, week_daily_applied=None, week_daily_highfit=None, week_daily_highfit_applied=None, all_data=None, all_applied=None):
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
     today_json          = json.dumps(today_data or _empty)
     today_applied_json  = json.dumps(today_applied or _empty)
     week_daily_json     = json.dumps(week_daily or [])
     week_daily_applied_json = json.dumps(week_daily_applied or [])
+    week_daily_highfit_json = json.dumps(week_daily_highfit or [])
+    week_daily_highfit_applied_json = json.dumps(week_daily_highfit_applied or [])
     all_json            = json.dumps(all_data or _empty)
     all_applied_json    = json.dumps(all_applied or _empty)
     return f"""<!DOCTYPE html>
@@ -554,12 +556,20 @@ def generate_dashboard_html(today_data=None, today_applied=None, week_daily=None
     <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">SM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">PM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">DIR<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">Proportion</th></tr></thead>
     <tbody id="allTimeBreakdownBody"></tbody></table>
   </div>
+  <div class="section">
+    <h2>High-Fit Jobs (Score &gt; 50) &mdash; Last 7 Days</h2>
+    <div class="day-tabs" id="dayTabsHighFit" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+    <table class="breakdown-table"><thead><tr><th>Portal</th><th style="text-align:center;">Total<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">SM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">PM<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">DIR<br><span style="font-weight:400;font-size:10px;">Fet | App</span></th><th style="text-align:center;">Proportion</th></tr></thead>
+    <tbody id="highFitBreakdownBody"></tbody></table>
+  </div>
 </div>
 <script>
 var BREAKDOWN_TODAY          = {today_json};
 var BREAKDOWN_TODAY_APPLIED  = {today_applied_json};
 var BREAKDOWN_WEEK_DAILY     = {week_daily_json};
 var BREAKDOWN_WEEK_DAILY_APPLIED = {week_daily_applied_json};
+var BREAKDOWN_WEEK_DAILY_HIGHFIT = {week_daily_highfit_json};
+var BREAKDOWN_WEEK_DAILY_HIGHFIT_APPLIED = {week_daily_highfit_applied_json};
 var BREAKDOWN_ALL            = {all_json};
 var BREAKDOWN_ALL_APPLIED    = {all_applied_json};
 function heat(val, max) {{
@@ -715,6 +725,44 @@ renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTime
   }});
 
   if (BREAKDOWN_WEEK_DAILY.length) renderDayTab(activeIdx);
+}})();
+
+// High-fit tabs (score > 50)
+(function() {{
+  var DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var tabsEl = document.getElementById('dayTabsHighFit');
+  var activeIdx = BREAKDOWN_WEEK_DAILY_HIGHFIT.length - 1;
+
+  function dateToDay(ds) {{
+    var d = new Date(ds + 'T00:00:00');
+    return DAY_NAMES[d.getDay()];
+  }}
+
+  function renderDayTab(idx) {{
+    activeIdx = idx;
+    var day = BREAKDOWN_WEEK_DAILY_HIGHFIT[idx];
+    var dayApp = BREAKDOWN_WEEK_DAILY_HIGHFIT_APPLIED[idx] || {{rows:[],grand_total:{{SM:0,PM:0,DIR:0,total:0}}}};
+    renderBreakdownTable(day.rows, day.grand_total, 'highFitBreakdownBody', day.date,
+      dayApp.rows, dayApp.grand_total, day.date);
+    tabsEl.querySelectorAll('.day-tab-btn').forEach(function(b, i) {{
+      b.className = 'day-tab-btn tab' + (i === idx ? ' tab-active' : '');
+    }});
+  }}
+
+  BREAKDOWN_WEEK_DAILY_HIGHFIT.forEach(function(day, i) {{
+    var btn = document.createElement('button');
+    var label = dateToDay(day.date) + ' ' + day.date.slice(5);
+    var tot = day.grand_total.total;
+    var appDay = BREAKDOWN_WEEK_DAILY_HIGHFIT_APPLIED[i] || {{grand_total:{{total:0}}}};
+    var appTot = appDay.grand_total.total;
+    btn.textContent = label + (tot || appTot ? ' (' + tot + ' fet, ' + appTot + ' app)' : ' (0)');
+    btn.className = 'day-tab-btn tab' + (i === activeIdx ? ' tab-active' : '');
+    btn.style.cssText = 'border:none;cursor:pointer;font-size:12px;padding:5px 12px;';
+    btn.onclick = function() {{ renderDayTab(i); }};
+    tabsEl.appendChild(btn);
+  }});
+
+  if (BREAKDOWN_WEEK_DAILY_HIGHFIT.length) renderDayTab(activeIdx);
 }})();
 </script>
 </body>
@@ -946,19 +994,21 @@ def status_summary():
 def dashboard():
     _empty = {"rows": [], "grand_total": {"SM": 0, "PM": 0, "DIR": 0, "total": 0}}
     today_data = today_applied = all_data = all_applied = _empty
-    week_daily = week_daily_applied = []
+    week_daily = week_daily_applied = week_daily_highfit = week_daily_highfit_applied = []
     cloud = get_cloud()
     u = uid()
     print(f"[dashboard] cloud={'yes' if cloud else 'no'} uid={u!r}", flush=True)
     if cloud and u:
         try:
-            all_rows = _fetch_all(cloud, u, "portal, track, imported_date, status, applied_date")
+            all_rows = _fetch_all(cloud, u, "portal, track, imported_date, status, applied_date, fit")
             print(f"[dashboard] fetched {len(all_rows)} rows for uid={u!r}", flush=True)
             if all_rows:
                 today = date.today()
                 today_str = str(today)
                 _day_names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
                 applied_rows = [r for r in all_rows if r.get("status") == "applied"]
+                high_fit_rows = [r for r in all_rows if (r.get("fit") or 0) > 50]
+                high_fit_applied = [r for r in high_fit_rows if r.get("status") == "applied"]
 
                 # Today
                 today_rows, today_gt = compute_breakdown(all_rows, today_str)
@@ -975,22 +1025,30 @@ def dashboard():
                 # Week daily
                 week_daily = []
                 week_daily_applied = []
+                week_daily_highfit = []
+                week_daily_highfit_applied = []
                 for i in range(6, -1, -1):
                     d = today - timedelta(days=i)
                     d_str = str(d)
                     day_rows_p, day_gt = compute_breakdown(all_rows, d_str)
                     week_daily.append({
-                        "date": d_str,
-                        "day": _day_names[(d.weekday() + 1) % 7],
-                        "rows": day_rows_p,
-                        "grand_total": day_gt,
+                        "date": d_str, "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": day_rows_p, "grand_total": day_gt,
                     })
                     day_app_rows, day_app_gt = compute_breakdown(applied_rows, d_str, date_field="applied_date")
                     week_daily_applied.append({
-                        "date": d_str,
-                        "day": _day_names[(d.weekday() + 1) % 7],
-                        "rows": day_app_rows,
-                        "grand_total": day_app_gt,
+                        "date": d_str, "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": day_app_rows, "grand_total": day_app_gt,
+                    })
+                    hf_rows, hf_gt = compute_breakdown(high_fit_rows, d_str)
+                    week_daily_highfit.append({
+                        "date": d_str, "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": hf_rows, "grand_total": hf_gt,
+                    })
+                    hf_app_rows, hf_app_gt = compute_breakdown(high_fit_applied, d_str, date_field="applied_date")
+                    week_daily_highfit_applied.append({
+                        "date": d_str, "day": _day_names[(d.weekday() + 1) % 7],
+                        "rows": hf_app_rows, "grand_total": hf_app_gt,
                     })
                 print(f"[dashboard] breakdown today={today_gt} all={all_gt}", flush=True)
         except Exception:
@@ -999,6 +1057,8 @@ def dashboard():
         print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
     html = generate_dashboard_html(today_data=today_data, today_applied=today_applied,
                                    week_daily=week_daily, week_daily_applied=week_daily_applied,
+                                   week_daily_highfit=week_daily_highfit,
+                                   week_daily_highfit_applied=week_daily_highfit_applied,
                                    all_data=all_data, all_applied=all_applied)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
