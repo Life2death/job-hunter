@@ -1,0 +1,116 @@
+{
+  "searches": {
+    "SM": [
+      {"keyword": "Scrum Master", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Scrum Master", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Senior Scrum Master", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Release Train Engineer", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Release Train Engineer", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Agile Coach", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Agile Coach", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Enterprise Agile Coach", "location": "Mumbai", "loc_id": "103"}
+    ],
+    "PM": [
+      {"keyword": "Program Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Program Manager", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Technical Program Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Technical Program Manager", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Senior Program Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Senior Program Manager", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Delivery Program Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Delivery Program Manager", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Delivery Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Project Manager", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Project Manager", "location": "Pune", "loc_id": "67"}
+    ],
+    "DIR": [
+      {"keyword": "Director Engineering", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Director Engineering", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Senior Director", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "VP Engineering", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Vice President", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Vice President", "location": "Pune", "loc_id": "67"},
+      {"keyword": "Head of Delivery", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Head of Engineering", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Director Delivery", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "CTO", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Delivery Head", "location": "Mumbai", "loc_id": "103"},
+      {"keyword": "Delivery Head", "location": "Pune", "loc_id": "67"}
+    ]
+  },
+  "scoring_keywords": {
+    "SAFE_KEYWORDS": ["safe", "pi planning", "agile release train", "scaled agile", "less framework", "nexus", "scrum@scale", "lean agile", "lean portfolio", "art sync"],
+    "BFSI_KEYWORDS": ["bank", "banking", "financial services", "fintech", "insurance", "payments", "capital markets", "credit", "lending", "wealth", "asset management", "securities", "trading", "broking"],
+    "GOVERNANCE_KW": ["program governance", "raid", "steering committee", "p&l", "budget", "pmo", "transformation", "portfolio", "roadmap", "stakeholder management", "delivery governance"],
+    "SCOPE_KW": ["p&l", "portfolio", "multi-account", "org building", "headcount", "span of control", "delivery org", "practice lead"],
+    "SENIOR_PM_KW": ["senior program", "sr program", "technical program", "delivery program", "tpm", "program governance"],
+    "NEGATIVE_KW": ["intern", "internship", "fresher", "trainee", "graduate program", "entry level", "junior"]
+  },
+  "company_tiers": {
+    "TIER1_BFSI": ["barclays", "jpmorgan", "jp morgan", "citi", "citibank", "deutsche", "morgan stanley", "goldman", "amex", "american express", "mastercard", "visa", "ubs", "hsbc", "standard chartered", "nomura", "blackrock", "fidelity", "wells fargo", "bank of america", "bnp paribas"],
+    "GCC_FINTECH": ["nasdaq", "fiserv", "fis", "broadridge", "paypal", "razorpay", "phonepe", "cred", "groww", "zerodha", "navi", "paytm", "stripe", "revolut", "wise"],
+    "IT_SERVICES": ["accenture", "capgemini", "infosys", "tcs", "wipro", "cognizant", "hcl", "ltimindtree", "mphasis", "persistent", "deloitte", "ey", "pwc", "kpmg"]
+  },
+  "location_prefs": {
+    "GOOD_LOCS_PRIMARY": ["mumbai", "navi mumbai", "thane", "pune"],
+    "RELOCATABLE_METROS": ["bengaluru", "bangalore", "hyderabad", "gurgaon", "gurugram", "noida"],
+    "LOCATION_SCORE_GOOD": ["mumbai", "pune", "thane", "navi mumbai", "remote", "hybrid"],
+    "LOCATION_SCORE_RELOCATE": ["bengaluru", "bangalore", "hyderabad", "gurgaon", "gurugram", "noida"]
+  },
+  "location_maps": {
+    "NAUKRI_LOC_MAP": {
+      "Mumbai": "103", "Pune": "67", "Bangalore": "4", "Delhi": "96", "Hyderabad": "17", "Chennai": "9", "Kolkata": "21", "Ahmedabad": "1", "Noida": "114", "Gurgaon": "118"
+    },
+    "LI_LOCATION_MAP": {
+      "Mumbai": "Mumbai Metropolitan Region",
+      "Pune": "Pune, Maharashtra, India"
+    },
+    "IIMJOBS_LOC_MAP": {
+      "Mumbai": "Mumbai", "Pune": "Pune", "Bangalore": "Bangalore", "Delhi": "Delhi", "Hyderabad": "Hyderabad", "Chennai": "Chennai", "Kolkata": "Kolkata", "Ahmedabad": "Ahmedabad", "Noida": "Noida", "Gurgaon": "Gurgaon"
+    }
+  },
+  "thresholds": {
+    "FRESH_MAX": 3,
+    "AGING_MAX": 7,
+    "COMP_FLOOR": 4000000,
+    "COMP_TARGET": 5000000,
+    "COMP_FLOOR_DIR": 5000000,
+    "APPLY_SCORE_CUTOFF": 50,
+    "APPLY_DELAY": 5.0,
+    "PAGES": 3,
+    "NAUKRI_PAGES": 5,
+    "RESULTS_PER_PAGE": 20,
+    "RESULTS_TOP_N": 20,
+    "LOOKUP_CHUNK": 50
+  },
+  "scoring_rubrics": {
+    "SM": {"role_match": 25, "safe_signal": 20, "domain_fit": 15, "comp": 15, "location": 10, "availability": 5, "org_quality": 10},
+    "PM": {"role_match": 23, "governance": 20, "domain_fit": 15, "comp": 15, "location": 10, "availability": 5, "org_quality": 10},
+    "DIR": {"role_match": 25, "scope_scale": 20, "domain_fit": 15, "comp": 15, "location": 10, "availability": 5, "org_quality": 10}
+  },
+  "tracks": ["SM", "PM", "DIR"],
+  "portals": {
+    "enabled": ["linkedin", "adzuna", "foundit", "iimjobs", "naukri"],
+    "display_names": {
+      "linkedin": "LinkedIn", "adzuna": "Adzuna", "foundit": "Foundit", "iimjobs": "IIMJobs", "naukri": "Naukri"
+    }
+  },
+  "api": {
+    "ADZUNA_API": "https://api.adzuna.com/v1/api/jobs/in/search",
+    "NAUKRI_BASE": "https://www.naukri.com/jobapi/v3/search",
+    "NAUKRI_LOGIN": "https://www.naukri.com/central-login-services/v1/login",
+    "NAUKRI_APPLY": "https://www.naukri.com/cloudgateway-workflow/workflow-services/apply-workflow/v1/apply",
+    "NAUKRI_PUBLIC_KEY": "-----BEGIN PUBLIC KEY-----\nMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBALrlQ+djR0RjJwBF1xuisHmdFv334MIm\nK6LgzJhmLhN7B5yuEyaKoasgXQk3+OQglsOaBxEJ0j5PcTL3nbOvt80CAwEAAQ==\n-----END PUBLIC KEY-----"
+  },
+  "apply": {
+    "SCORE_CUTOFF": 50,
+    "DELAY": 5.0,
+    "BATCH_SIZE": 10,
+    "INTERVAL_MINUTES": 10,
+    "LOGSTR_MAP": {"search": "srp", "recommended": "drecomm_apply"},
+    "LOGSTR_TEMPLATE": "--{src}-1-F-0-1--{sid}-"
+  },
+  "secrets": {
+    "cookie_files": [".naukri_cookie.txt", ".foundit_cookie.txt", ".iimjobs_cookie.txt"]
+  }
+}

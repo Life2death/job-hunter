@@ -175,11 +175,14 @@ PENDING_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 def tabs_html(active="dashboard"):
     dash_cls = "tab tab-active" if active == "dashboard" else "tab"
     jobs_cls = "tab tab-active" if active == "jobs" else "tab"
+    settings_cls = "tab tab-active" if active == "settings" else "tab"
     admin_cls = "tab tab-active" if active == "admin" else "tab"
+    settings_link = f'<a class="{settings_cls}" href="/settings">Settings</a>' if session.get("email") else ""
     admin_link = f'<a class="{admin_cls}" href="/admin">Admin</a>' if session.get("is_admin") else ""
     return f"""<div class="tabs">
   <a class="{dash_cls}" href="/">Dashboard</a>
   <a class="{jobs_cls}" href="/jobs">Job Queue</a>
+  {settings_link}
   {admin_link}
   <span style="margin-left:auto;font-size:12px;color:#999;padding:8px 0">{session.get("email","")} <a href="/logout" style="color:#999;text-decoration:none;">logout</a></span>
 </div>"""
@@ -1227,6 +1230,179 @@ def logout():
             pass
     session.clear()
     return redirect("/login")
+
+
+# ─── Settings routes ─────────────────────────────────────
+
+def settings_html(tab="general"):
+    import settings as s
+    data = s.get_all() or {}
+    searches = data.get("searches", s.DEFAULT_SEARCHES)
+    scoring_kw = data.get("scoring_keywords", s.DEFAULT_SCORING_KEYWORDS)
+    company_tiers = data.get("company_tiers", s.DEFAULT_COMPANY_TIERS)
+    thresholds = data.get("thresholds", s.DEFAULT_THRESHOLDS)
+    portals = data.get("portals", s.DEFAULT_PORTALS)
+    tracks = data.get("tracks", s.DEFAULT_TRACKS)
+
+    tab_labels = {"general": "General", "sm": "SM", "pm": "PM", "dir": "DIR"}
+    sub_tabs = "".join(
+        f'<a class="subtab {"subtab-active" if tab == k else ""}" href="/settings?tab={k}">{v}</a>'
+        for k, v in tab_labels.items()
+    )
+
+    def _input_row(label, key, value, type="text", section="thresholds"):
+        return f"""<div class="field-row">
+  <label>{label}</label>
+  <input name="{section}.{key}" value="{value}" type="{type}" class="form-input">
+</div>"""
+
+    def _textarea_row(label, items, section, key):
+        val = "\\n".join(items) if isinstance(items, list) else str(items)
+        return f"""<div class="field-row">
+  <label>{label}</label>
+  <textarea name="{section}.{key}" class="form-input" rows="4">{val}</textarea>
+</div>"""
+
+    body = ""
+    if tab == "general":
+        body = f"""<h2>Thresholds</h2>
+{_input_row("Freshness Max (days)", "FRESH_MAX", thresholds.get("FRESH_MAX", 3), "number")}
+{_input_row("Aging Max (days)", "AGING_MAX", thresholds.get("AGING_MAX", 7), "number")}
+{_input_row("Comp Floor", "COMP_FLOOR", thresholds.get("COMP_FLOOR", 4000000), "number")}
+{_input_row("Comp Target", "COMP_TARGET", thresholds.get("COMP_TARGET", 5000000), "number")}
+{_input_row("Comp Floor DIR", "COMP_FLOOR_DIR", thresholds.get("COMP_FLOOR_DIR", 5000000), "number")}
+{_input_row("Apply Score Cutoff", "APPLY_SCORE_CUTOFF", thresholds.get("APPLY_SCORE_CUTOFF", 50), "number")}
+{_input_row("Apply Delay (days)", "APPLY_DELAY", thresholds.get("APPLY_DELAY", 3), "number")}
+{_input_row("Pages to Scrape", "PAGES", thresholds.get("PAGES", 3), "number")}
+{_input_row("Naukri Pages", "NAUKRI_PAGES", thresholds.get("NAUKRI_PAGES", 10), "number")}
+{_input_row("Results Per Page", "RESULTS_PER_PAGE", thresholds.get("RESULTS_PER_PAGE", 25), "number")}
+{_input_row("Results Top N", "RESULTS_TOP_N", thresholds.get("RESULTS_TOP_N", 50), "number")}
+{_input_row("Lookup Chunk Size", "LOOKUP_CHUNK", thresholds.get("LOOKUP_CHUNK", 50), "number")}
+<h2>Portals</h2>
+{_textarea_row("Enabled Portals", portals.get("enabled", []), "portals", "enabled")}
+<h2>Tracks</h2>
+{_textarea_row("Active Tracks", data.get("tracks", tracks), "general", "tracks")}
+<h2>Company Tiers</h2>
+{_textarea_row("Tier 1 BFSI", company_tiers.get("TIER1_BFSI", []), "company_tiers", "TIER1_BFSI")}
+{_textarea_row("GCC / Fintech", company_tiers.get("GCC_FINTECH", []), "company_tiers", "GCC_FINTECH")}
+{_textarea_row("IT Services", company_tiers.get("IT_SERVICES", []), "company_tiers", "IT_SERVICES")}"""
+    elif tab == "sm":
+        body = f"""<h2>SM Search Keywords</h2>
+{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("SM", [])], "searches", "SM")}
+<h2>SM Scoring Keywords</h2>
+{_textarea_row("Safe / Agile", scoring_kw.get("SAFE_KEYWORDS", []), "scoring_keywords", "SAFE_KEYWORDS")}"""
+    elif tab == "pm":
+        body = f"""<h2>PM Search Keywords</h2>
+{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("PM", [])], "searches", "PM")}
+<h2>PM Scoring Keywords</h2>
+{_textarea_row("Governance", scoring_kw.get("GOVERNANCE_KW", []), "scoring_keywords", "GOVERNANCE_KW")}
+{_textarea_row("Senior PM Titles", scoring_kw.get("SENIOR_PM_KW", []), "scoring_keywords", "SENIOR_PM_KW")}"""
+    elif tab == "dir":
+        body = f"""<h2>DIR Search Keywords</h2>
+{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("DIR", [])], "searches", "DIR")}
+<h2>All Scoring Keywords</h2>
+{_textarea_row("BFSI Keywords", scoring_kw.get("BFSI_KEYWORDS", []), "scoring_keywords", "BFSI_KEYWORDS")}
+{_textarea_row("Negative Keywords", scoring_kw.get("NEGATIVE_KW", []), "scoring_keywords", "NEGATIVE_KW")}"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Settings - Job Hunter</title>
+<style>
+  * {{ box-sizing:border-box;margin:0;padding:0; }}
+  body {{ font:14px/1.5 system-ui,sans-serif; background:#f5f5f5; padding:20px; }}
+  .tabs {{ display:flex; gap:0; margin-bottom:16px; border-bottom:2px solid #1565c0; }}
+  .tab {{ padding:8px 20px; text-decoration:none; color:#555; background:#eee; border-radius:4px 4px 0 0; font-weight:600; margin-right:4px; }}
+  .tab:hover {{ background:#ddd; }}
+  .tab-active {{ background:#1565c0; color:#fff; }}
+  .subtabs {{ display:flex; gap:4px; margin-bottom:16px; }}
+  .subtab {{ padding:6px 16px; text-decoration:none; color:#555; background:#e8e8e8; border-radius:4px; font-size:13px; }}
+  .subtab:hover {{ background:#ddd; }}
+  .subtab-active {{ background:#1565c0; color:#fff; }}
+  .section {{ background:#fff; border-radius:8px; padding:16px 20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); }}
+  h2 {{ font-size:16px; margin-bottom:12px; margin-top:16px; }}
+  h2:first-child {{ margin-top:0; }}
+  .field-row {{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }}
+  .field-row label {{ width:180px; font-size:13px; color:#444; flex-shrink:0; }}
+  .form-input {{ flex:1; padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; font-family:monospace; }}
+  .form-input:focus {{ border-color:#1565c0; outline:none; }}
+  textarea.form-input {{ min-height:80px; resize:vertical; }}
+  .btn-save {{ padding:8px 24px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:14px; margin-top:16px; }}
+  .btn-save:hover {{ background:#0d47a1; }}
+  .toast {{ display:none; position:fixed; bottom:20px; right:20px; background:#1a7d1a; color:#fff; padding:10px 20px; border-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,.2); font-size:13px; }}
+  a {{ color:#1565c0; }}
+</style></head><body>
+{tabs_html("settings")}
+<div class="subtabs">{sub_tabs}</div>
+<form id="settings-form">
+<div class="section">{body}</div>
+<button class="btn-save" type="submit">Save Settings</button>
+</form>
+<div id="toast" class="toast">Saved!</div>
+<script>
+document.getElementById("settings-form").addEventListener("submit", async function(e) {{
+  e.preventDefault();
+  const fd = new FormData(this);
+  const data = {{}};
+  for (const [key, val] of fd.entries()) {{
+    let parts = key.split(".");
+    let section = parts[0], field = parts.slice(1).join(".");
+    if (!data[section]) data[section] = {{}};
+    if (val.includes("\\n") || val.includes("|")) {{
+      data[section][field] = val.split("\\n").filter(Boolean).map(v => {{
+        let p = v.split("|");
+        return p.length > 1 ? {{keyword: p[0].trim(), location: p[1].trim()}} : v.trim();
+      }});
+    }} else {{
+      data[section][field] = isNaN(val) || val === "" ? val : Number(val);
+    }}
+  }}
+  const resp = await fetch("/api/settings", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body:JSON.stringify(data)}});
+  if (resp.ok) {{
+    const t = document.getElementById("toast");
+    t.style.display = "block";
+    setTimeout(() => t.style.display = "none", 2500);
+  }}
+}});
+</script>
+</body></html>"""
+
+
+@app.route("/settings")
+def settings_page():
+    if not session.get("email"):
+        return redirect("/login")
+    tab = request.args.get("tab", "general")
+    if tab not in ("general", "sm", "pm", "dir"):
+        tab = "general"
+    try:
+        html = settings_html(tab)
+    except Exception as e:
+        return f"Error: {e}<br><pre>{traceback.format_exc()}</pre>", 500
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    if not session.get("email"):
+        return jsonify({"ok": False, "error": "not logged in"}), 401
+    if request.method == "GET":
+        import settings as s
+        return jsonify({"ok": True, "data": s.get_all()})
+    try:
+        updates = request.get_json(force=True)
+        import settings as s
+        cur = s.get_all() or {}
+        for section, fields in updates.items():
+            if section not in cur:
+                cur[section] = {}
+            if isinstance(fields, dict):
+                for k, v in fields.items():
+                    cur[section][k] = v
+        s._file_data = cur
+        s.save_to_file()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 # ─── Admin routes ────────────────────────────────────────

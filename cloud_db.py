@@ -8,6 +8,7 @@ import os, json
 from datetime import date
 from typing import Optional
 from dedup import canonical_url, normalize_job_key
+from settings import LOOKUP_CHUNK
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -15,9 +16,6 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 _AVAILABLE = bool(SUPABASE_URL and SUPABASE_KEY)
 
 TODAY = date.today()
-
-# Max ids/urls per .in_() lookup — keeps the PostgREST GET URL under length limits.
-LOOKUP_CHUNK = 50
 
 # Columns the scraper may refresh on existing rows. User-owned columns
 # (status, applied_date, imported_date) must never appear here.

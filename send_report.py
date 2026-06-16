@@ -14,17 +14,10 @@ from collections import defaultdict
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from settings import PORTAL_DISPLAY, TRACKS
+
 TODAY = date.today()
 TODAY_STR = TODAY.isoformat()
-
-PORTAL_DISPLAY = {
-    "linkedin": "LinkedIn", "LinkedIn": "LinkedIn",
-    "adzuna": "Adzuna", "Adzuna": "Adzuna",
-    "foundit": "Foundit", "Foundit": "Foundit",
-    "iimjobs": "IIMJobs", "IIMJobs": "IIMJobs",
-    "naukri": "Naukri", "Naukri": "Naukri",
-}
-TRACKS = ["SM", "PM", "DIR"]
 
 
 def get_supabase():

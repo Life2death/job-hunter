@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Sync settings from Supabase
+        run: python -c "from settings import load_from_supabase; load_from_supabase(); print('Settings synced from cloud')"
+
       - name: Run job extraction
         run: |
           PORTAL="${{ github.event.inputs.portal || 'all' }}"

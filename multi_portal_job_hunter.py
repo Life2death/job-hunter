@@ -22,6 +22,16 @@ from pathlib import Path
 from functools import lru_cache
 from dedup import canonical_url
 
+from settings import (
+    SEARCHES, SAFE_KEYWORDS, BFSI_KEYWORDS, GOVERNANCE_KW, SCOPE_KW,
+    SENIOR_PM_KW, NEGATIVE_KW, TIER1_BFSI, GCC_FINTECH, IT_SERVICES,
+    GOOD_LOCS_PRIMARY, RELOCATABLE_METROS, FRESH_MAX, AGING_MAX,
+    COMP_FLOOR, COMP_TARGET, NAUKRI_LOC_MAP, LI_LOCATION_MAP,
+    IIMJOBS_LOC_MAP,
+    PORTAL_DISPLAY, ENABLED_PORTALS, PAGES, RESULTS_TOP_N, RESULTS_PER_PAGE,
+    LOCATION_SCORE_GOOD, LOCATION_SCORE_RELOCATE, RUBRICS, LOOKUP_CHUNK,
+)
+
 if __name__ == "__main__":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -84,82 +94,7 @@ def _cookie(key):
 TODAY = date.today()
 MULTI_DB = Path("multi_portal_jobs.db")
 
-SEARCHES = {
-    "SM": [
-        {"keyword": "Scrum Master",          "location": "Mumbai"},
-        {"keyword": "Scrum Master",          "location": "Pune"},
-        {"keyword": "Senior Scrum Master",   "location": "Mumbai"},
-        {"keyword": "Release Train Engineer","location": "Mumbai"},
-        {"keyword": "Release Train Engineer","location": "Pune"},
-        {"keyword": "Agile Coach",           "location": "Mumbai"},
-        {"keyword": "Agile Coach",           "location": "Pune"},
-        {"keyword": "Enterprise Agile Coach","location": "Mumbai"},
-    ],
-    "PM": [
-        {"keyword": "Program Manager",          "location": "Mumbai"},
-        {"keyword": "Program Manager",          "location": "Pune"},
-        {"keyword": "Technical Program Manager", "location": "Mumbai"},
-        {"keyword": "Technical Program Manager", "location": "Pune"},
-        {"keyword": "Senior Program Manager",    "location": "Mumbai"},
-        {"keyword": "Senior Program Manager",    "location": "Pune"},
-        {"keyword": "Delivery Program Manager",  "location": "Mumbai"},
-        {"keyword": "Delivery Program Manager",  "location": "Pune"},
-        {"keyword": "Delivery Manager",          "location": "Mumbai"},
-        {"keyword": "Project Manager",           "location": "Mumbai"},
-        {"keyword": "Project Manager",           "location": "Pune"},
-    ],
-    "DIR": [
-        {"keyword": "Director Engineering",  "location": "Mumbai"},
-        {"keyword": "Director Engineering",  "location": "Pune"},
-        {"keyword": "Senior Director",       "location": "Mumbai"},
-        {"keyword": "VP Engineering",        "location": "Mumbai"},
-        {"keyword": "Vice President",        "location": "Mumbai"},
-        {"keyword": "Vice President",        "location": "Pune"},
-        {"keyword": "Head of Delivery",      "location": "Mumbai"},
-        {"keyword": "Head of Engineering",   "location": "Mumbai"},
-        {"keyword": "Director Delivery",     "location": "Mumbai"},
-        {"keyword": "CTO",                   "location": "Mumbai"},
-        {"keyword": "Delivery Head",         "location": "Mumbai"},
-        {"keyword": "Delivery Head",         "location": "Pune"},
-    ],
-}
-
-FRESH_MAX  = 3
-AGING_MAX  = 7
-COMP_FLOOR  = 4_000_000
-COMP_TARGET = 5_000_000
-
-
 # ─── Scoring v2 ───────────────────────────────────────────────────────────────
-
-SAFE_KEYWORDS = ["safe", "pi planning", "agile release train", "scaled agile",
-                 "less framework", "nexus", "scrum@scale", "lean agile",
-                 "lean portfolio", "art sync"]
-BFSI_KEYWORDS = ["bank", "banking", "financial services", "fintech", "insurance",
-                 "payments", "capital markets", "credit", "lending", "wealth",
-                 "asset management", "securities", "trading", "broking"]
-GOVERNANCE_KW = ["program governance", "raid", "steering committee", "p&l",
-                 "budget", "pmo", "transformation", "portfolio", "roadmap",
-                 "stakeholder management", "delivery governance"]
-SCOPE_KW      = ["p&l", "portfolio", "multi-account", "org building",
-                 "headcount", "span of control", "delivery org", "practice lead"]
-SENIOR_PM_KW  = ["senior program", "sr program", "technical program",
-                 "delivery program", "tpm", "program governance"]
-
-NEGATIVE_KW   = ["intern", "internship", "fresher", "trainee", "graduate program",
-                 "entry level", "junior"]
-
-TIER1_BFSI    = ["barclays","jpmorgan","jp morgan","citi","citibank","deutsche",
-                 "morgan stanley","goldman","amex","american express","mastercard",
-                 "visa","ubs","hsbc","standard chartered","nomura","blackrock",
-                 "fidelity","wells fargo","bank of america","bnp paribas"]
-GCC_FINTECH   = ["nasdaq","fiserv","fis","broadridge","paypal","razorpay","phonepe",
-                 "cred","groww","zerodha","navi","paytm","stripe","revolut","wise"]
-IT_SERVICES   = ["accenture","capgemini","infosys","tcs","wipro","cognizant","hcl",
-                 "ltimindtree","mphasis","persistent","deloitte","ey","pwc","kpmg"]
-
-GOOD_LOCS_PRIMARY  = ["mumbai","navi mumbai","thane","pune"]
-RELOCATABLE_METROS = ["bengaluru","bangalore","hyderabad","gurgaon","gurugram","noida"]
 
 # Precompile
 _RE_DAYS = re.compile(r"\d+")
@@ -322,11 +257,6 @@ LI_HEADERS = {
                    "AppleWebKit/537.36 (KHTML, like Gecko) "
                    "Chrome/124.0.0.0 Safari/537.36"),
     "Accept-Language": "en-US,en;q=0.9",
-}
-
-LI_LOCATION_MAP = {
-    "Mumbai": "Mumbai Metropolitan Region",
-    "Pune":   "Pune, Maharashtra, India",
 }
 
 def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
@@ -586,11 +516,7 @@ def fetch_iimjobs(keyword: str, location: str, pages: int = 3) -> list:
         "Cookie": cookie,
     }
 
-    loc_map = {"Mumbai": "Mumbai", "Pune": "Pune", "Bangalore": "Bangalore",
-               "Delhi": "Delhi", "Hyderabad": "Hyderabad", "Chennai": "Chennai",
-               "Kolkata": "Kolkata", "Ahmedabad": "Ahmedabad", "Noida": "Noida",
-               "Gurgaon": "Gurgaon"}
-    loc = loc_map.get(location, location)
+    loc = IIMJOBS_LOC_MAP.get(location, location)
     kw_parts = keyword.lower().split()
 
     jobs = []
@@ -685,11 +611,6 @@ def _naukri_nkparam(page_type="srp"):
     encrypted = _NAUKRI_CRYPTO.encrypt(plaintext.encode("utf-8"))
     import base64
     return base64.b64encode(encrypted).decode("utf-8")
-
-NAUKRI_LOC_MAP = {"Mumbai": "103", "Pune": "67", "Bangalore": "4",
-                  "Delhi": "96", "Hyderabad": "17", "Chennai": "9",
-                  "Kolkata": "21", "Ahmedabad": "1", "Noida": "114",
-                  "Gurgaon": "118"}
 
 def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
     cookie = os.environ.get("NAUKRI_COOKIE") or _cookie("naukri")
@@ -789,11 +710,6 @@ PORTALS = {
     "iimjobs":  fetch_iimjobs,
     "naukri":   fetch_naukri,
 }
-PORTAL_DISPLAY = {"linkedin": "LinkedIn", "adzuna": "Adzuna",
-                  "foundit": "Foundit", "iimjobs": "IIMJobs",
-                  "naukri": "Naukri"}
-
-
 # ─── SQLite Database ─────────────────────────────────────────────────────────
 
 class MultiPortalDB:
@@ -958,7 +874,7 @@ def run(tracks: list, portals: list, test_mode: bool = False):
     all_results = []
     seen_ids    = set()
     seen_urls   = set()
-    pages       = 1 if test_mode else 3
+    pages       = 1 if test_mode else PAGES
 
     for track in tracks:
         print(f"\n{'='*60}\nTrack: {track}")
