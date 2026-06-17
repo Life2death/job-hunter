@@ -201,32 +201,81 @@ def score_job(job: dict, track: str):
     return scores, sum(scores.values()), flags
 
 
-def freshness(posted_str: str):
-    if not posted_str:
+def freshness(posted_str):
+    """
+    Parses a posting timestamp into (tag, modifier, age_days).
+    Handles, in order:
+      1. Numeric epoch (int, or numeric string) in seconds or ms
+      2. ISO-8601 datetime strings (Naukri's modifiedOn/createdOn look like
+         "2026-06-08T06:00:00.000Z" or "2026-06-08T06:00:00")
+      3. Plain "YYYY-MM-DD"
+      4. Relative-text fallbacks ("today", "2 days ago", "1 week ago", "3 months ago")
+    Falls back to UNKNOWN only if truly nothing matches.
+    """
+    if posted_str is None or posted_str == "":
         return "UNKNOWN", -10, None
-    s = posted_str.strip().lower()
-    try:
-        d = datetime.strptime(posted_str.strip(), "%Y-%m-%d").date()
-        age = (TODAY - d).days
-    except ValueError:
-        if s.isdigit() and len(s) > 8:
-            ts = int(s)
-            ts = ts // 1000 if ts > 1e11 else ts
+
+    # Coerce to string up front — Naukri's JSON can hand back an int for epoch fields.
+    if isinstance(posted_str, (int, float)):
+        s_raw = str(int(posted_str))
+    else:
+        s_raw = str(posted_str).strip()
+
+    if not s_raw:
+        return "UNKNOWN", -10, None
+
+    s = s_raw.lower()
+    age = None
+
+    # 1. Pure numeric epoch (seconds or milliseconds)
+    if s_raw.isdigit() and len(s_raw) >= 9:
+        ts = int(s_raw)
+        ts = ts / 1000 if ts > 1e11 else ts
+        try:
             age = (TODAY - datetime.fromtimestamp(ts).date()).days
-        elif any(x in s for x in ["just", "today", "now", "few hours", "hour"]):
+        except (ValueError, OverflowError, OSError):
+            age = None
+
+    # 2. ISO-8601 datetime, with or without trailing Z / milliseconds / timezone offset
+    if age is None:
+        iso_candidate = s_raw.replace("Z", "+00:00")
+        try:
+            d = datetime.fromisoformat(iso_candidate)
+            age = (TODAY - d.date()).days
+        except ValueError:
+            pass
+
+    # 3. Plain date, e.g. "2026-06-08"
+    if age is None:
+        try:
+            d = datetime.strptime(s_raw[:10], "%Y-%m-%d").date()
+            age = (TODAY - d).days
+        except ValueError:
+            pass
+
+    # 4. Relative-text fallbacks
+    if age is None:
+        if any(x in s for x in ["just", "today", "now", "few hours", "hour"]):
             age = 0
         elif "yesterday" in s:
             age = 1
-        elif "day" in s:
-            m = _RE_DAYS.search(s)
-            age = int(m.group()) if m else 99
         elif "week" in s:
             m = _RE_DAYS.search(s)
-            age = int(m.group()) * 7 if m else 99
+            age = int(m.group()) * 7 if m else None
         elif "month" in s:
-            return "STALE", None, 99
-        else:
-            return "UNKNOWN", -10, None
+            m = _RE_DAYS.search(s)
+            age = int(m.group()) * 30 if m else 99
+        elif "day" in s:
+            # check this LAST among relative-text branches: "30+ days" style
+            # strings can otherwise be misread if checked before week/month
+            m = _RE_DAYS.search(s)
+            age = int(m.group()) if m else None
+
+    if age is None:
+        return "UNKNOWN", -10, None
+    if age < 0:
+        # clock skew / future-dated posting — treat as fresh rather than erroring
+        age = 0
 
     if age <= FRESH_MAX:
         return "FRESH", 0, age
@@ -685,6 +734,12 @@ def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
                 sal_min = sal_range.get("minimumSalary", 0) or 0 if sal_range else 0
 
                 posted_raw = item.get("modifiedOn", "") or item.get("createdOn", "") or ""
+                if DEBUG_SAVE and len(jobs) == 0:
+                    # One-time-per-page sample so we can confirm the real
+                    # field shape Naukri is sending (epoch / ISO / etc.)
+                    # without spamming the log for every item.
+                    print(f"    [naukri debug] posted_raw sample: "
+                          f"{posted_raw!r} (type={type(posted_raw).__name__})")
                 jobs.append({
                     "job_id": f"nk_{jid}",
                     "portal": "Naukri",
