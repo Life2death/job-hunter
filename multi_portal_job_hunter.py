@@ -37,6 +37,8 @@ if __name__ == "__main__":
 
 import requests
 from curl_cffi import requests as curl_requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
     from bs4 import BeautifulSoup
@@ -271,6 +273,7 @@ def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
                 params={"keywords": keyword, "location": loc,
                         "start": str(page * 25), "f_TPR": "r604800"},
                 timeout=20,
+                verify=False,
             )
             if resp.status_code != 200:
                 break
