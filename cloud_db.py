@@ -198,9 +198,9 @@ class CloudDB:
         Use with extreme care — this is irreversible."""
         try:
             resp = self._table().delete().eq("user_id", self.user_id).execute()
-            count = resp.count if hasattr(resp, 'count') else len(resp.data or [])
-            print(f"[cloud] Cleared {count} rows for user {self.user_id}")
-            return count
+            deleted = resp.data if resp.data else []
+            print(f"[cloud] Cleared {len(deleted)} rows for user {self.user_id}")
+            return len(deleted)
         except Exception as e:
             print(f"[cloud] Clear failed: {e}")
             return 0
