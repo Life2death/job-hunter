@@ -41,6 +41,7 @@ def fetch_all(supabase, user_id, select_cols, filters=None):
         if filters:
             for method, args in filters:
                 q = getattr(q, method)(*args)
+        q = q.is_("hidden", "null")
         batch = q.range(offset, offset + page_size - 1).execute()
         data = batch.data or []
         if not data:

@@ -58,6 +58,7 @@ def _fetch_all(cloud, user_id, select_cols, status_filter=None):
                 q = q.in_("status", status_filter)
             else:
                 q = q.eq("status", status_filter)
+        q = q.is_("hidden", "null")
         batch = q.range(off, off + page_size - 1).execute()
         data = batch.data or []
         if not data:
@@ -256,10 +257,18 @@ def generate_html(track="", portal="", status="", min_fit=0, applied_date="", im
   </div>
 </div>
 <div id="load-info" style="font-size:12px;color:#999;margin-bottom:8px;text-align:right;"></div>
+<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+  <button id="hideSelectedBtn" style="padding:6px 16px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;display:none;">
+    Hide Selected (<span id="selectedCount">0</span>)
+  </button>
+  <span id="hideStatus" style="font-size:12px;color:#999;"></span>
+</div>
 <div id="jobGrid" class="ag-theme-alpine"></div>
 <script>
 var gridOptions = {{
   columnDefs: [
+    {{ checkboxSelection: true, width: 50, headerCheckboxSelection: true, pinned: 'left',
+       sortable: false, filter: false, resizable: false }},
     {{ field: 'fit', width: 60, sortable: true, filter: 'agNumberColumnFilter',
        cellClassRules: {{ 'fit-high': p => p.value >= 60, 'fit-mid': p => p.value >= 40 }} }},
     {{ field: 'freshness', width: 90, sortable: true, filter: 'agSetColumnFilter' }},
@@ -342,6 +351,7 @@ var gridOptions = {{
        }}
     }}
   ],
+  rowSelection: 'multiple',
   defaultColDef: {{ resizable: true }},
   rowClassRules: {{
     'row-new': function(p) {{ return p.data.imported_date && p.data.imported_date === p.data.last_seen_date; }},
@@ -369,6 +379,54 @@ var gridOptions = {{
 
 var gridDiv = document.getElementById('jobGrid');
 new agGrid.Grid(gridDiv, gridOptions);
+
+// Selection tracking for Hide button
+var selBtn = document.getElementById('hideSelectedBtn');
+var selCount = document.getElementById('selectedCount');
+var hideStatus = document.getElementById('hideStatus');
+
+function updateHideBtn() {{
+  var selected = gridOptions.api.getSelectedRows();
+  if (selected.length) {{
+    selBtn.style.display = '';
+    selCount.textContent = selected.length;
+  }} else {{
+    selBtn.style.display = 'none';
+  }}
+}}
+
+gridOptions.api.addEventListener('selectionChanged', updateHideBtn);
+
+selBtn.addEventListener('click', function() {{
+  var selected = gridOptions.api.getSelectedRows();
+  if (!selected.length) return;
+  var jobIds = selected.map(function(r) {{ return r.job_id; }});
+  selBtn.disabled = true;
+  selBtn.textContent = 'Hiding...';
+  fetch('/api/jobs/hide', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{job_ids: jobIds}})
+  }}).then(function(r) {{ return r.json(); }}).then(function(d) {{
+    if (d.ok) {{
+      hideStatus.textContent = 'Hidden ' + d.hidden_count + ' job' + (d.hidden_count !== 1 ? 's' : '');
+      gridOptions.api.applyTransaction({{remove: selected}});
+      // Refresh count badge
+      fetch('/api/jobs/count').then(function(r) {{ return r.json(); }}).then(function(c) {{
+        document.getElementById('count-badge').textContent = c.to_apply + ' jobs to apply';
+      }}).catch(function() {{}});
+    }} else {{
+      hideStatus.textContent = 'Error hiding jobs';
+    }}
+    selBtn.disabled = false;
+    selBtn.textContent = 'Hide Selected';
+    if (!gridOptions.api.getSelectedRows().length) selBtn.style.display = 'none';
+  }}).catch(function() {{
+    hideStatus.textContent = 'Error hiding jobs';
+    selBtn.disabled = false;
+    selBtn.textContent = 'Hide Selected';
+  }});
+}});
 
 // Count badge
 fetch('/api/jobs/count')
@@ -791,6 +849,7 @@ def api_jobs():
     def filtered_query(sel="*", with_count=False):
         q = cloud.table("job_listings").select(sel, count="exact" if with_count else None)
         q = q.eq("user_id", u)
+        q = q.is_("hidden", "null")
         if track: q = q.eq("track", track)
         if portal: q = q.eq("portal", portal)
         if status: q = q.eq("status", status)
@@ -981,12 +1040,40 @@ def update_job_status(job_id):
     return jsonify({"ok": False}), 404
 
 
+def _chunked(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+@app.route("/api/jobs/hide", methods=["POST"])
+def hide_jobs():
+    cloud = get_cloud()
+    if not cloud:
+        return jsonify({"ok": False, "error": "No Supabase"}), 500
+    data = request.get_json(silent=True)
+    if not data or "job_ids" not in data:
+        return jsonify({"ok": False, "error": "job_ids required"}), 400
+    u = uid()
+    job_ids = data["job_ids"]
+    if not job_ids:
+        return jsonify({"ok": True, "hidden_count": 0})
+    count = 0
+    for chunk in _chunked(job_ids, 100):
+        result = cloud.table("job_listings").update({"hidden": True}) \
+            .eq("user_id", u) \
+            .in_("job_id", chunk) \
+            .execute()
+        if result.data:
+            count += len(result.data)
+    return jsonify({"ok": True, "hidden_count": count})
+
+
 @app.route("/status")
 def status_summary():
     cloud = get_cloud()
     if not cloud:
         return jsonify({"error": "No Supabase"}), 500
-    result = cloud.table("job_listings").select("track, portal, status, count").eq("user_id", uid()).execute()
+    result = cloud.table("job_listings").select("track, portal, status, count").eq("user_id", uid()).is_("hidden", "null").execute()
     return jsonify(result.data or [])
 
 
