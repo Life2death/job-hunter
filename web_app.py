@@ -58,7 +58,7 @@ def _fetch_all(cloud, user_id, select_cols, status_filter=None):
                 q = q.in_("status", status_filter)
             else:
                 q = q.eq("status", status_filter)
-        q = q.is_("hidden", "null")
+        q = q.neq("hidden", True)
         batch = q.range(off, off + page_size - 1).execute()
         data = batch.data or []
         if not data:
@@ -849,7 +849,7 @@ def api_jobs():
     def filtered_query(sel="*", with_count=False):
         q = cloud.table("job_listings").select(sel, count="exact" if with_count else None)
         q = q.eq("user_id", u)
-        q = q.is_("hidden", "null")
+        q = q.neq("hidden", True)
         if track: q = q.eq("track", track)
         if portal: q = q.eq("portal", portal)
         if status: q = q.eq("status", status)
@@ -1073,7 +1073,7 @@ def status_summary():
     cloud = get_cloud()
     if not cloud:
         return jsonify({"error": "No Supabase"}), 500
-    result = cloud.table("job_listings").select("track, portal, status, count").eq("user_id", uid()).is_("hidden", "null").execute()
+    result = cloud.table("job_listings").select("track, portal, status, count").eq("user_id", uid()).neq("hidden", True).execute()
     return jsonify(result.data or [])
 
 
