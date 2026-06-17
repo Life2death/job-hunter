@@ -12,6 +12,7 @@ on:
         type: choice
         options:
           - all
+          - clear
           - foundit
           - linkedin
           - adzuna
@@ -51,7 +52,11 @@ jobs:
       - name: Run job extraction
         run: |
           PORTAL="${{ github.event.inputs.portal || 'all' }}"
-          if [ "$PORTAL" = "all" ]; then
+          if [ "$PORTAL" = "clear" ]; then
+            echo "=== CLEARING Supabase data ==="
+            python multi_portal_job_hunter.py --cloud --clear --force
+            echo "=== CLEAR complete ==="
+          elif [ "$PORTAL" = "all" ]; then
             python multi_portal_job_hunter.py --cloud
           else
             python multi_portal_job_hunter.py --cloud --portal "$PORTAL"

@@ -1320,6 +1320,10 @@ if __name__ == "__main__":
                         help="Port for --serve mode (default: 8080)")
     parser.add_argument("--cloud", action="store_true",
                         help="Use Supabase cloud DB instead of local SQLite")
+    parser.add_argument("--clear", action="store_true",
+                        help="DELETE all job listings from Supabase for this user (use with caution)")
+    parser.add_argument("--force", action="store_true",
+                        help="Skip confirmation for destructive operations (--clear)")
     parser.add_argument("--pull", action="store_true",
                         help="Pull cloud DB into local SQLite")
     parser.add_argument("--email", default="",
@@ -1362,6 +1366,22 @@ if __name__ == "__main__":
         print(f"[OK] Pulled {n} jobs from cloud to local DB")
         exit(0)
 
+    if args.clear:
+        if not cloud_db:
+            print("[!] --clear requires Supabase connection. Set SUPABASE_URL and SUPABASE_KEY.")
+            exit(1)
+        if args.force:
+            n = cloud_db.clear_all()
+            print(f"[OK] Deleted {n} rows")
+        else:
+            confirm = input(f"  This will DELETE ALL job listings for user '{cloud_db.user_id}' from Supabase. Are you sure? (yes/no): ")
+            if confirm.strip().lower() == "yes":
+                n = cloud_db.clear_all()
+                print(f"[OK] Deleted {n} rows")
+            else:
+                print("Cancelled.")
+        exit(0)
+
     if args.serve:
         serve_report(track_arg, portal_arg, args.min_fit, args.port)
     elif args.report:
@@ -1379,6 +1399,12 @@ if __name__ == "__main__":
 
         print(f"Multi-Portal Job Hunter — {TODAY}")
         print(f"Tracks: {tracks}  |  Portals: {portals}  |  Test: {args.test}")
+
+        if not args.cloud:
+            print()
+            print("  ⚠️  WARNING: Running without --cloud — results will NOT be pushed to Supabase dashboard")
+            print("  ⚠️  Add --cloud to sync jobs to the web dashboard")
+            print()
 
         try:
             results = run(tracks, portals, test_mode=args.test)

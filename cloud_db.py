@@ -193,6 +193,18 @@ class CloudDB:
         result = query.execute().data
         return result
 
+    def clear_all(self):
+        """Delete ALL job_listings for this user from Supabase.
+        Use with extreme care — this is irreversible."""
+        try:
+            resp = self._table().delete().eq("user_id", self.user_id).execute()
+            count = resp.count if hasattr(resp, 'count') else len(resp.data or [])
+            print(f"[cloud] Cleared {count} rows for user {self.user_id}")
+            return count
+        except Exception as e:
+            print(f"[cloud] Clear failed: {e}")
+            return 0
+
     def pull_to_local(self, local_db):
         """Sync cloud data into a local MultiPortalDB instance."""
         jobs = self.all_jobs()
