@@ -176,6 +176,7 @@ PENDING_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 def tabs_html(active="dashboard"):
     dash_cls = "tab tab-active" if active == "dashboard" else "tab"
     jobs_cls = "tab tab-active" if active == "jobs" else "tab"
+    queue_cls = "tab tab-active" if active == "queue" else "tab"
     settings_cls = "tab tab-active" if active == "settings" else "tab"
     admin_cls = "tab tab-active" if active == "admin" else "tab"
     settings_link = f'<a class="{settings_cls}" href="/settings">Settings</a>' if session.get("email") else ""
@@ -183,6 +184,7 @@ def tabs_html(active="dashboard"):
     return f"""<div class="tabs">
   <a class="{dash_cls}" href="/">Dashboard</a>
   <a class="{jobs_cls}" href="/jobs">Job Queue</a>
+  <a class="{queue_cls}" href="/queue">⚡ Rapid Apply</a>
   {settings_link}
   {admin_link}
   <span style="margin-left:auto;font-size:12px;color:#999;padding:8px 0">{session.get("email","")} <a href="/logout" style="color:#999;text-decoration:none;">logout</a></span>
@@ -1168,6 +1170,172 @@ def report():
 
     html = generate_html(track=track, portal=portal, status=status, min_fit=min_fit, applied_date=applied_date, imported_date=imported_date)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+def queue_html():
+    """Keyboard-driven Rapid Apply queue: one card at a time, top-fit first.
+
+    Reuses existing APIs only (no new backend): pulls not_applied jobs from
+    /api/jobs (fit-desc, paginated) and records decisions via /apply/<id> and
+    /api/jobs/<id>/status. Real application still happens on the portal site;
+    this just removes the friction of finding+opening+marking each job.
+    """
+    page = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Rapid Apply - Job Hunter</title>
+__BASECSS__
+<style>
+  .qwrap { max-width: 720px; margin: 0 auto; }
+  .qfilters { display:flex; gap:12px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .qfilters select, .qfilters input { padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; }
+  .qprogress { font-size:13px; color:#555; margin-left:auto; }
+  .card { background:#fff; border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,.1); padding:24px; min-height:300px; }
+  .card .fit { display:inline-block; font-weight:700; color:#fff; padding:3px 12px; border-radius:14px; font-size:15px; }
+  .fit-high { background:#1a7d1a; } .fit-mid { background:#b8860b; } .fit-low { background:#999; }
+  .card h2 { font-size:22px; margin:12px 0 4px; }
+  .card .co { font-size:16px; color:#333; font-weight:600; }
+  .card .meta { color:#666; font-size:13px; margin:8px 0; }
+  .pill { display:inline-block; background:#eef; color:#1565c0; border-radius:10px; padding:2px 10px; font-size:12px; margin-right:6px; }
+  .flag { display:inline-block; background:#fdecea; color:#c0392b; border-radius:10px; padding:2px 10px; font-size:12px; margin-right:6px; }
+  .breakdown { margin-top:14px; font-size:12px; color:#555; }
+  .breakdown span { display:inline-block; margin-right:14px; }
+  .actions { display:flex; gap:10px; margin-top:22px; flex-wrap:wrap; }
+  .btn { padding:12px 18px; border:none; border-radius:8px; cursor:pointer; font-size:15px; font-weight:600; }
+  .btn-apply { background:#1a7d1a; color:#fff; } .btn-apply:hover { background:#156015; }
+  .btn-open { background:#1565c0; color:#fff; } .btn-skip { background:#777; color:#fff; }
+  .btn-no { background:#c0392b; color:#fff; } .btn-undo { background:#eee; color:#333; }
+  .btn small { opacity:.8; font-weight:400; }
+  .hint { color:#888; font-size:12px; margin-top:14px; }
+  .done { text-align:center; padding:60px 20px; color:#1a7d1a; font-size:20px; font-weight:600; }
+  .empty { text-align:center; padding:60px 20px; color:#888; }
+</style></head><body>
+__TABS__
+<div class="qwrap">
+  <h1>⚡ Rapid Apply</h1>
+  <div class="qfilters">
+    <label>Track
+      <select id="f-track">
+        <option value="">All</option><option value="SM">SM</option>
+        <option value="PM">PM</option><option value="DIR">DIR</option>
+      </select>
+    </label>
+    <label>Min fit <input id="f-fit" type="number" value="40" min="0" max="100" style="width:64px"></label>
+    <button class="btn btn-open" style="padding:6px 14px;font-size:13px" onclick="reload()">Load</button>
+    <span class="qprogress" id="progress"></span>
+  </div>
+  <div id="card-host"><div class="empty">Pick filters and press Load.</div></div>
+  <div class="hint">Keys: <b>A</b>/Enter = open &amp; apply · <b>O</b> = open only · <b>S</b> = skip · <b>N</b> = not interested · <b>U</b> = undo</div>
+</div>
+<script>
+var Q = [], idx = 0, offset = 0, total = 0, appliedCount = 0, lastAction = null, loading = false, exhausted = false;
+function fitCls(f){ return f >= 50 ? 'fit-high' : (f >= 35 ? 'fit-mid' : 'fit-low'); }
+function esc(s){ var d=document.createElement('div'); d.textContent = s==null?'':String(s); return d.innerHTML; }
+
+function reload(){ Q=[]; idx=0; offset=0; total=0; exhausted=false; appliedCount=0; lastAction=null; fetchBatch(true); }
+
+function fetchBatch(thenRender){
+  if (loading || exhausted) return Promise.resolve();
+  loading = true;
+  var tr = document.getElementById('f-track').value;
+  var mf = document.getElementById('f-fit').value || 0;
+  var url = '/api/jobs?status=not_applied&min_fit=' + encodeURIComponent(mf) +
+            '&limit=50&offset=' + offset + (tr ? '&track=' + tr : '');
+  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
+    var rows = d.rows || [];
+    total = d.total != null ? d.total : total;
+    if (rows.length === 0) { exhausted = true; }
+    else { Q = Q.concat(rows); offset += rows.length; }
+    loading = false;
+    if (thenRender) render();
+  }).catch(function(){ loading = false; });
+}
+
+function render(){
+  var host = document.getElementById('card-host');
+  if (idx >= Q.length){
+    if (!exhausted){ fetchBatch(true); host.innerHTML = '<div class="empty">Loading…</div>'; return; }
+    host.innerHTML = appliedCount || idx ? '<div class="done">All caught up! Applied to ' + appliedCount + ' this session. 🎉</div>'
+                                         : '<div class="empty">No not-applied jobs match these filters.</div>';
+    document.getElementById('progress').textContent = '';
+    return;
+  }
+  var j = Q[idx];
+  var sj = {}; try { sj = JSON.parse(j.scores_json || '{}'); } catch(e){}
+  var flags = (sj.f || []).map(function(f){ return '<span class="flag">' + esc(f) + '</span>'; }).join('');
+  var s = sj.s || {};
+  var bd = Object.keys(s).map(function(k){ return '<span>' + esc(k) + ': <b>' + esc(s[k]) + '</b></span>'; }).join('');
+  host.innerHTML =
+    '<div class="card">' +
+      '<span class="fit ' + fitCls(j.fit) + '">fit ' + esc(j.fit) + '</span> ' +
+      '<span class="pill">' + esc(j.track) + '</span><span class="pill">' + esc(j.portal) + '</span>' +
+      '<h2>' + esc(j.title) + '</h2>' +
+      '<div class="co">' + esc(j.company) + '</div>' +
+      '<div class="meta">📍 ' + esc(j.location || '—') + (j.freshness ? ' · ' + esc(j.freshness) : '') + '</div>' +
+      (flags ? '<div>' + flags + '</div>' : '') +
+      (bd ? '<div class="breakdown">' + bd + '</div>' : '') +
+      '<div class="actions">' +
+        '<button class="btn btn-apply" onclick="doApply()">Apply &amp; open <small>(A)</small></button>' +
+        '<button class="btn btn-open" onclick="doOpen()">Open only <small>(O)</small></button>' +
+        '<button class="btn btn-skip" onclick="doSkip()">Skip <small>(S)</small></button>' +
+        '<button class="btn btn-no" onclick="doNo()">Not interested <small>(N)</small></button>' +
+        '<button class="btn btn-undo" onclick="doUndo()">Undo <small>(U)</small></button>' +
+      '</div>' +
+    '</div>';
+  var done = total ? (total - (Q.length - idx)) : idx;
+  document.getElementById('progress').textContent =
+    (idx + 1) + (total ? ' / ' + total : '') + ' · applied ' + appliedCount + ' this session';
+}
+
+function setStatus(j, status){
+  return fetch('/api/jobs/' + encodeURIComponent(j.job_id) + '/status', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: status})
+  });
+}
+function advance(){ idx++; render(); }
+
+function doApply(){
+  var j = Q[idx]; if (!j) return;
+  if (j.url) window.open(j.url, '_blank');          // open portal in new tab (real apply happens there)
+  fetch('/apply/' + encodeURIComponent(j.job_id), { method:'POST' });
+  appliedCount++; lastAction = {job:j, prev:'not_applied', _wasApply:true};
+  advance();
+}
+function doOpen(){ var j = Q[idx]; if (j && j.url) window.open(j.url, '_blank'); }
+function doSkip(){ var j = Q[idx]; if(!j) return; setStatus(j,'skipped'); lastAction={job:j,prev:'not_applied'}; advance(); }
+function doNo(){ var j = Q[idx]; if(!j) return; setStatus(j,'not_interested'); lastAction={job:j,prev:'not_applied'}; advance(); }
+function doUndo(){
+  if (idx <= 0 || !lastAction) return;
+  idx--;
+  var j = Q[idx];
+  setStatus(j, 'not_applied');
+  if (lastAction.job === j && appliedCount > 0 && lastAction._wasApply) appliedCount--;
+  lastAction = null;
+  render();
+}
+
+document.addEventListener('keydown', function(e){
+  if (['INPUT','SELECT','TEXTAREA'].indexOf(e.target.tagName) >= 0) return;
+  var k = e.key.toLowerCase();
+  if (k === 'a' || k === 'enter'){ e.preventDefault(); doApply(); }
+  else if (k === 'o'){ e.preventDefault(); doOpen(); }
+  else if (k === 's'){ e.preventDefault(); doSkip(); }
+  else if (k === 'n'){ e.preventDefault(); doNo(); }
+  else if (k === 'u' || k === 'backspace'){ e.preventDefault(); doUndo(); }
+});
+reload();
+</script>
+</body></html>"""
+    return page.replace("__BASECSS__", BASE_CSS).replace("__TABS__", tabs_html("queue"))
+
+
+@app.route("/queue")
+def queue_page():
+    if not session.get("email"):
+        return redirect("/login")
+    cloud = get_cloud()
+    if not cloud:
+        return "Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY.", 500
+    return queue_html(), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 # ─── Auth routes ─────────────────────────────────────────
