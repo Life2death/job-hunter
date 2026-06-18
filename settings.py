@@ -1,11 +1,14 @@
 """
 settings.py
-Central configuration loader. Loads settings.json first, falls back to code defaults.
+Central configuration loader. Loads .env + settings.json first, falls back to code defaults.
 Provides module-level constants used by all job hunter scripts.
 Call load_from_supabase() to override from cloud before running in GitHub Actions.
 """
 import os, json
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
 
 _SETTINGS_PATH = Path(__file__).parent / "settings.json"
 _supabase_data = None

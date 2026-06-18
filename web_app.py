@@ -1343,12 +1343,13 @@ def settings_html(tab="general"):
   <input name="{section}.{key}" value="{value}" type="{type}" class="form-input">
 </div>"""
 
-    def _textarea_row(label, items, section, key):
-        val = "\\n".join(items) if isinstance(items, list) else str(items)
+    def _csv_row(label, items, section, key, hint=""):
+        val = ", ".join(items) if isinstance(items, list) else str(items)
+        sub = f'<div class="hint">{hint}</div>' if hint else ""
         return f"""<div class="field-row">
   <label>{label}</label>
-  <textarea name="{section}.{key}" class="form-input" rows="4">{val}</textarea>
-</div>"""
+  <textarea name="{section}.{key}" class="form-input" rows="2">{val}</textarea>
+</div>{sub}"""
 
     body = ""
     if tab == "general":
@@ -1366,30 +1367,39 @@ def settings_html(tab="general"):
 {_input_row("Results Top N", "RESULTS_TOP_N", thresholds.get("RESULTS_TOP_N", 50), "number")}
 {_input_row("Lookup Chunk Size", "LOOKUP_CHUNK", thresholds.get("LOOKUP_CHUNK", 50), "number")}
 <h2>Portals</h2>
-{_textarea_row("Enabled Portals", portals.get("enabled", []), "portals", "enabled")}
+{_csv_row("Enabled Portals", portals.get("enabled", []), "portals", "enabled")}
 <h2>Tracks</h2>
-{_textarea_row("Active Tracks", data.get("tracks", tracks), "general", "tracks")}
+{_csv_row("Active Tracks", data.get("tracks", tracks), "general", "tracks")}
 <h2>Company Tiers</h2>
-{_textarea_row("Tier 1 BFSI", company_tiers.get("TIER1_BFSI", []), "company_tiers", "TIER1_BFSI")}
-{_textarea_row("GCC / Fintech", company_tiers.get("GCC_FINTECH", []), "company_tiers", "GCC_FINTECH")}
-{_textarea_row("IT Services", company_tiers.get("IT_SERVICES", []), "company_tiers", "IT_SERVICES")}"""
+{_csv_row("Tier 1 BFSI", company_tiers.get("TIER1_BFSI", []), "company_tiers", "TIER1_BFSI")}
+{_csv_row("GCC / Fintech", company_tiers.get("GCC_FINTECH", []), "company_tiers", "GCC_FINTECH")}
+{_csv_row("IT Services", company_tiers.get("IT_SERVICES", []), "company_tiers", "IT_SERVICES")}"""
     elif tab == "sm":
+        kws  = list(dict.fromkeys(s["keyword"]  for s in searches.get("SM", [])))
+        locs = list(dict.fromkeys(s["location"] for s in searches.get("SM", [])))
         body = f"""<h2>SM Search Keywords</h2>
-{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("SM", [])], "searches", "SM")}
+{_csv_row("Keywords", kws, "searches_kw", "SM", "Comma-separated roles. Each is searched in every location below.")}
+{_csv_row("Locations", locs, "searches_loc", "SM", "Comma-separated cities, e.g. Mumbai, Pune")}
 <h2>SM Scoring Keywords</h2>
-{_textarea_row("Safe / Agile", scoring_kw.get("SAFE_KEYWORDS", []), "scoring_keywords", "SAFE_KEYWORDS")}"""
+{_csv_row("Safe / Agile", scoring_kw.get("SAFE_KEYWORDS", []), "scoring_keywords", "SAFE_KEYWORDS")}"""
     elif tab == "pm":
+        kws  = list(dict.fromkeys(s["keyword"]  for s in searches.get("PM", [])))
+        locs = list(dict.fromkeys(s["location"] for s in searches.get("PM", [])))
         body = f"""<h2>PM Search Keywords</h2>
-{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("PM", [])], "searches", "PM")}
+{_csv_row("Keywords", kws, "searches_kw", "PM", "Comma-separated roles. Each is searched in every location below.")}
+{_csv_row("Locations", locs, "searches_loc", "PM", "Comma-separated cities, e.g. Mumbai, Pune")}
 <h2>PM Scoring Keywords</h2>
-{_textarea_row("Governance", scoring_kw.get("GOVERNANCE_KW", []), "scoring_keywords", "GOVERNANCE_KW")}
-{_textarea_row("Senior PM Titles", scoring_kw.get("SENIOR_PM_KW", []), "scoring_keywords", "SENIOR_PM_KW")}"""
+{_csv_row("Governance", scoring_kw.get("GOVERNANCE_KW", []), "scoring_keywords", "GOVERNANCE_KW")}
+{_csv_row("Senior PM Titles", scoring_kw.get("SENIOR_PM_KW", []), "scoring_keywords", "SENIOR_PM_KW")}"""
     elif tab == "dir":
+        kws  = list(dict.fromkeys(s["keyword"]  for s in searches.get("DIR", [])))
+        locs = list(dict.fromkeys(s["location"] for s in searches.get("DIR", [])))
         body = f"""<h2>DIR Search Keywords</h2>
-{_textarea_row("Keywords (keyword|location per line)", [f"{s['keyword']}|{s['location']}" for s in searches.get("DIR", [])], "searches", "DIR")}
-<h2>All Scoring Keywords</h2>
-{_textarea_row("BFSI Keywords", scoring_kw.get("BFSI_KEYWORDS", []), "scoring_keywords", "BFSI_KEYWORDS")}
-{_textarea_row("Negative Keywords", scoring_kw.get("NEGATIVE_KW", []), "scoring_keywords", "NEGATIVE_KW")}"""
+{_csv_row("Keywords", kws, "searches_kw", "DIR", "Comma-separated roles. Each is searched in every location below.")}
+{_csv_row("Locations", locs, "searches_loc", "DIR", "Comma-separated cities, e.g. Mumbai, Pune")}
+<h2>DIR Scoring Keywords</h2>
+{_csv_row("BFSI Keywords", scoring_kw.get("BFSI_KEYWORDS", []), "scoring_keywords", "BFSI_KEYWORDS")}
+{_csv_row("Negative Keywords", scoring_kw.get("NEGATIVE_KW", []), "scoring_keywords", "NEGATIVE_KW")}"""
 
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -1416,6 +1426,7 @@ def settings_html(tab="general"):
   .btn-save {{ padding:8px 24px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:14px; margin-top:16px; }}
   .btn-save:hover {{ background:#0d47a1; }}
   .toast {{ display:none; position:fixed; bottom:20px; right:20px; background:#1a7d1a; color:#fff; padding:10px 20px; border-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,.2); font-size:13px; }}
+  .hint {{ font-size:11px; color:#888; margin:-4px 0 10px 192px; }}
   a {{ color:#1565c0; }}
 </style></head><body>
 {tabs_html("settings")}
@@ -1430,20 +1441,9 @@ document.getElementById("settings-form").addEventListener("submit", async functi
   e.preventDefault();
   const fd = new FormData(this);
   const data = {{}};
-  for (const [key, val] of fd.entries()) {{
-    let parts = key.split(".");
-    let section = parts[0], field = parts.slice(1).join(".");
-    if (!data[section]) data[section] = {{}};
-    if (val.includes("\\n") || val.includes("|")) {{
-      data[section][field] = val.split("\\n").filter(Boolean).map(v => {{
-        let p = v.split("|");
-        return p.length > 1 ? {{keyword: p[0].trim(), location: p[1].trim()}} : v.trim();
-      }});
-    }} else {{
-      data[section][field] = isNaN(val) || val === "" ? val : Number(val);
-    }}
-  }}
-  const resp = await fetch("/api/settings", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body:JSON.stringify(data)}});
+  for (const [key, val] of fd.entries()) data[key] = val;
+  const resp = await fetch("/api/settings", {{method:"POST",
+    headers:{{"Content-Type":"application/json"}}, body:JSON.stringify(data)}});
   if (resp.ok) {{
     const t = document.getElementById("toast");
     t.style.display = "block";
@@ -1479,12 +1479,56 @@ def api_settings():
         updates = request.get_json(force=True)
         import settings as s
         cur = s.get_all() or {}
-        for section, fields in updates.items():
-            if section not in cur:
-                cur[section] = {}
-            if isinstance(fields, dict):
-                for k, v in fields.items():
-                    cur[section][k] = v
+
+        thresholds_raw = {}
+        csv_sections = {}
+        kw_by_track = {}
+        loc_by_track = {}
+
+        for key, raw in updates.items():
+            parts = key.split(".")
+            section = parts[0]
+            field = ".".join(parts[1:])
+            if section == "thresholds":
+                thresholds_raw[field] = raw
+            elif section in ("scoring_keywords", "company_tiers", "portals", "general"):
+                csv_sections.setdefault(section, {})[field] = raw
+            elif section == "searches_kw":
+                kw_by_track[field] = [x.strip() for x in raw.split(",") if x.strip()]
+            elif section == "searches_loc":
+                loc_by_track[field] = [x.strip() for x in raw.split(",") if x.strip()]
+
+        for k, v in thresholds_raw.items():
+            if v == "":
+                continue
+            try:
+                vn = float(v)
+                thresholds_raw[k] = int(vn) if vn == int(vn) else vn
+            except ValueError:
+                pass
+        if thresholds_raw:
+            cur.setdefault("thresholds", {}).update(thresholds_raw)
+
+        loc_map = s.LOCATION_MAPS.get("NAUKRI_LOC_MAP", {})
+        for section, fields in csv_sections.items():
+            for field, raw in fields.items():
+                items = [x.strip() for x in raw.split(",") if x.strip()]
+                if section == "general":
+                    cur[field] = items
+                elif section == "portals":
+                    cur.setdefault("portals", {})[field] = items
+                else:
+                    cur.setdefault(section, {})[field] = items
+
+        all_tracks = set(kw_by_track) | set(loc_by_track)
+        for track in all_tracks:
+            kws  = kw_by_track.get(track, [])
+            locs = loc_by_track.get(track, [])
+            cur.setdefault("searches", {})[track] = [
+                {"keyword": k, "location": l, "loc_id": loc_map.get(l, "")}
+                for k in kws for l in locs
+            ]
+
         s._file_data = cur
         s.save_to_file()
         return jsonify({"ok": True})
