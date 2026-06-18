@@ -69,7 +69,7 @@ DEFAULT_TRACKS = ["SM", "PM", "DIR"]
 DEFAULT_COMPANY_TIERS = {
     "TIER1_BFSI": ["barclays", "jpmorgan", "jp morgan", "citi", "citibank", "deutsche", "morgan stanley", "goldman", "amex", "american express", "mastercard", "visa", "ubs", "hsbc", "standard chartered", "nomura", "blackrock", "fidelity", "wells fargo", "bank of america", "bnp paribas"],
     "GCC_FINTECH": ["nasdaq", "fiserv", "fis", "broadridge", "paypal", "razorpay", "phonepe", "cred", "groww", "zerodha", "navi", "paytm", "stripe", "revolut", "wise"],
-    "IT_SERVICES": ["accenture", "capgemini", "infosys", "tcs", "wipro", "cognizant", "hcl", "ltimindtree", "mphasis", "persistent", "deloitte", "ey", "pwc", "kpmg"],
+    "IT_SERVICES": ["accenture", "capgemini", "infosys", "tcs", "wipro", "cognizant", "hcl", "ltimindtree", "mphasis", "persistent", "deloitte", "ey", "pwc", "kpmg", "edgeverve", "finacle", "infosys bpm", "coforge", "birlasoft", "zensar", "hexaware", "nagarro", "mindtree", "tech mahindra", "virtusa"],
 }
 
 DEFAULT_LOCATION_PREFS = {
