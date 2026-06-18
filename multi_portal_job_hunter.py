@@ -131,10 +131,7 @@ def comp_score(salary: int):
         return min(18, 15 + bonus), None
     if salary > 0:
         return max(3, int(15 * salary / COMP_FLOOR)), "below_floor"
-    # Naukri hides salary ("Not Disclosed") on most listings -> salary_min=0.
-    # Treat unknown comp as neutral (~half of base) instead of zero so good
-    # jobs aren't silently penalised for a missing field. (recall-first tuning)
-    return 8, "comp_unknown"
+    return None, "comp_unknown"
 
 
 def score_job(job: dict, track: str):
@@ -159,7 +156,7 @@ def score_job(job: dict, track: str):
         elif "scrum master" in title or "scrummaster" in title:
             scores["role_match"] = 18
         else:
-            scores["role_match"] = 10
+            scores["role_match"] = 5
         scores["safe_signal"] = min(20, count_kw(text, SAFE_KEYWORDS) * 7)
         scores["domain_fit"]  = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
@@ -169,9 +166,9 @@ def score_job(job: dict, track: str):
         elif has_kw(title, "program manager"):
             scores["role_match"] = 18
         elif has_kw(title, "project manager"):
-            scores["role_match"] = 15
+            scores["role_match"] = 12
         else:
-            scores["role_match"] = 10
+            scores["role_match"] = 5
         scores["governance"] = min(20, count_kw(text, GOVERNANCE_KW) * 5)
         scores["domain_fit"] = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
@@ -179,11 +176,11 @@ def score_job(job: dict, track: str):
         if any(has_kw(title, k) for k in ["vp", "head of", "cto", "chief"]):
             scores["role_match"] = 25
         elif "associate director" in title:
-            scores["role_match"] = 20
+            scores["role_match"] = 16
         elif has_kw(title, "director"):
             scores["role_match"] = 22
         else:
-            scores["role_match"] = 10
+            scores["role_match"] = 6
         scores["scope_scale"] = min(20, count_kw(text, SCOPE_KW) * 5)
         scores["domain_fit"]  = min(15, count_kw(text_co, BFSI_KEYWORDS) * 5)
 
@@ -218,7 +215,7 @@ def freshness(posted_str):
     if posted_str is None or posted_str == "":
         return "UNKNOWN", -10, None
 
-    # Coerce to string up front � Naukri's JSON can hand back an int for epoch fields.
+    # Coerce to string up front - Naukri's JSON can hand back an int for epoch fields.
     if isinstance(posted_str, (int, float)):
         s_raw = str(int(posted_str))
     else:
@@ -277,7 +274,7 @@ def freshness(posted_str):
     if age is None:
         return "UNKNOWN", -10, None
     if age < 0:
-        # clock skew / future-dated posting � treat as fresh rather than erroring
+        # clock skew / future-dated posting - treat as fresh rather than erroring
         age = 0
 
     if age <= FRESH_MAX:
