@@ -185,13 +185,17 @@ class CloudDB:
         return len(result.data) > 0
 
     def count_by_status(self, track: str = None, portal: str = None) -> list:
-        query = self._table().select("track, portal, status, count")
+        query = self._table().select("track, portal, status")
         if track:
             query = query.eq("track", track)
         if portal:
             query = query.eq("portal", portal)
-        result = query.execute().data
-        return result
+        rows = query.execute().data or []
+        counts: dict = {}
+        for r in rows:
+            key = (r["track"], r["portal"], r["status"])
+            counts[key] = counts.get(key, 0) + 1
+        return [(t, p, s, c) for (t, p, s), c in sorted(counts.items())]
 
     def clear_all(self):
         """Delete ALL job_listings for this user from Supabase.

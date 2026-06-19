@@ -289,7 +289,7 @@ def freshness(posted_str):
 
 # ─── Debug helper ─────────────────────────────────────────────────────────────
 
-DEBUG_SAVE = True
+DEBUG_SAVE = bool(os.environ.get("DEBUG_PORTAL"))
 
 def _save_debug(portal: str, resp):
     if not DEBUG_SAVE:
@@ -312,6 +312,28 @@ LI_HEADERS = {
                    "Chrome/124.0.0.0 Safari/537.36"),
     "Accept-Language": "en-US,en;q=0.9",
 }
+
+def _li_desc(jid: str) -> str:
+    try:
+        resp = requests.get(
+            f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{jid}",
+            headers=LI_HEADERS,
+            timeout=10,
+            verify=False,
+        )
+        if resp.status_code != 200:
+            return ""
+        soup = BeautifulSoup(resp.text, "lxml")
+        el = soup.find("div", class_=lambda c: c and "show-more-less-html__markup" in c)
+        if el:
+            return el.get_text(separator=" ", strip=True)[:500]
+        el = soup.find("section", class_=lambda c: c and "description" in (c or ""))
+        if el:
+            return el.get_text(separator=" ", strip=True)[:500]
+        return ""
+    except Exception:
+        return ""
+
 
 def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
     jobs = []
@@ -373,9 +395,10 @@ def fetch_linkedin(keyword: str, location: str, pages: int = 3) -> list:
                         "posted_date": time_el.get("datetime", "") if time_el else "",
                         "salary_min": 0,
                         "salary_max": 0,
-                        "description": "",
+                        "description": _li_desc(jid),
                         "url": f"https://www.linkedin.com/jobs/view/{jid}",
                     })
+                    time.sleep(0.3)
                 except Exception:
                     continue
             time.sleep(2)
@@ -753,7 +776,7 @@ def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
                     "salary_min": sal_min,
                     "salary_max": 0,
                     "description": (item.get("jobDescription", "") or "")[:500],
-                    "url": f"https://www.naukri.com/job-listings-{jid}" if jid else "",
+                    "url": item.get("jdURL") or item.get("jobUrl") or (f"https://www.naukri.com/job-listings-{jid}" if jid else ""),
                 })
             time.sleep(1)
         except Exception as e:
