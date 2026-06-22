@@ -59,6 +59,11 @@ def _fetch_all(cloud, user_id, select_cols, status_filter=None):
             else:
                 q = q.eq("status", status_filter)
         q = q.neq("hidden", True)
+        # Stable sort key is REQUIRED for offset pagination: without an explicit
+        # order, Postgres returns rows in heap order which shifts after writes,
+        # so pages overlap (phantom duplicate rows) and skip others (undercounts).
+        # job_id is unique per user, giving deterministic, gap-free paging.
+        q = q.order("job_id")
         batch = q.range(off, off + page_size - 1).execute()
         data = batch.data or []
         if not data:
@@ -356,8 +361,11 @@ var gridOptions = {{
   rowSelection: 'multiple',
   defaultColDef: {{ resizable: true }},
   rowClassRules: {{
-    'row-new': function(p) {{ return p.data.imported_date && p.data.imported_date === p.data.last_seen_date; }},
-    'row-updated': function(p) {{ return p.data.imported_date && p.data.last_seen_date && p.data.imported_date !== p.data.last_seen_date; }}
+    // "new" = first inserted today; "updated" = re-seen today but inserted earlier.
+    // (Previously compared imported_date===last_seen_date, which mislabels any
+    //  never-re-seen old job as "new" forever.)
+    'row-new': function(p) {{ var t = new Date().toISOString().slice(0,10); return (p.data.imported_date||'').slice(0,10) === t; }},
+    'row-updated': function(p) {{ var t = new Date().toISOString().slice(0,10); return (p.data.last_seen_date||'').slice(0,10) === t && (p.data.imported_date||'').slice(0,10) !== t; }}
   }},
   rowData: null,
   postSortRows: function(params) {{
@@ -443,8 +451,9 @@ function updateChangeBadge() {{
   var rows = [];
   gridOptions.api.forEachNode(function(n) {{ rows.push(n.data); }});
   if (!rows.length) return;
-  var _new = rows.filter(function(r) {{ return r.imported_date && r.imported_date === r.last_seen_date; }}).length;
-  var upd = rows.filter(function(r) {{ return r.imported_date && r.last_seen_date && r.imported_date !== r.last_seen_date; }}).length;
+  var t = new Date().toISOString().slice(0,10);
+  var _new = rows.filter(function(r) {{ return (r.imported_date||'').slice(0,10) === t; }}).length;
+  var upd = rows.filter(function(r) {{ return (r.last_seen_date||'').slice(0,10) === t && (r.imported_date||'').slice(0,10) !== t; }}).length;
   var el = document.getElementById('change-badge');
   if (_new || upd) el.textContent = _new + ' new, ' + upd + ' updated';
 }}
@@ -862,8 +871,11 @@ def api_jobs():
     limit = request.args.get("limit", type=int)
     offset = request.args.get("offset", 0, type=int)
 
+    # fit is not unique, so it alone is not a stable paging key — ties resolve in
+    # heap order and shift after writes, duplicating/skipping rows across pages.
+    # Add job_id as a unique tiebreaker so offset pagination is deterministic.
     if limit is not None:
-        batch = filtered_query().order("fit", desc=True).range(offset, offset + limit - 1).execute()
+        batch = filtered_query().order("fit", desc=True).order("job_id").range(offset, offset + limit - 1).execute()
         cnt = filtered_query("job_id", with_count=True).execute()
         total = getattr(cnt, 'count', 0) or 0
         return jsonify({"rows": batch.data or [], "total": total})
@@ -872,7 +884,7 @@ def api_jobs():
     all_jobs = []
     off = 0
     while True:
-        batch = filtered_query().order("fit", desc=True).range(off, off + page_size - 1).execute()
+        batch = filtered_query().order("fit", desc=True).order("job_id").range(off, off + page_size - 1).execute()
         data = batch.data or []
         if not data:
             break
