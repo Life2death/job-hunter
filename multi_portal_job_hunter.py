@@ -116,8 +116,23 @@ def company_tier(company: str) -> int:
     return 5
 
 
+# Overseas destinations that leak into India searches (mostly via Foundit's
+# Gulf aggregation). Tokens kept unambiguous to avoid false hits on substrings.
+FOREIGN_LOCS = (
+    "united arab emirates", "uae", "dubai", "abu dhabi", "sharjah",
+    "saudi arabia", "saudi", "riyadh", "jeddah",
+    "qatar", "doha", "kuwait", "bahrain", "manama", "oman", "muscat",
+    "singapore", "malaysia", "kuala lumpur",
+    "united kingdom", "london", "united states", "germany",
+    "netherlands", "amsterdam", "canada", "toronto", "australia", "sydney",
+)
+
+
 def location_score(loc: str) -> int:
     l = loc.lower()
+    # Down-rank jobs outside India before any positive metro match — a UAE job
+    # mislabeled or correctly labeled should never score as a home metro.
+    if any(x in l for x in FOREIGN_LOCS):        return 1
     if any(x in l for x in GOOD_LOCS_PRIMARY):  return 10
     if "remote" in l:                            return 8
     if "hybrid" in l:                            return 7
@@ -497,6 +512,38 @@ def fetch_adzuna(keyword: str, location: str, pages: int = 3) -> list:
 
 # ─── Portal: Foundit (Monster India) ─────────────────────────────────────────
 
+def _foundit_location(locs: list) -> str:
+    """Build a location label from Foundit's `locations` array.
+
+    Foundit (monsterindia) aggregates Gulf/overseas jobs that leak into India
+    searches. Their location objects vary: India jobs carry a "city", while
+    international (e.g. UAE) jobs often carry only "country"/"label" and no
+    "city". The old code did `locs[0].get("city", search_location)`, so any
+    job without a city silently inherited the *search* city (Mumbai/Pune) —
+    stamping foreign jobs as Mumbai/Pune. Never fall back to the search city:
+    return whatever real fields exist, or "" if none.
+    """
+    if not locs:
+        return ""
+    first = locs[0] if isinstance(locs[0], dict) else {}
+    parts = []
+    for key in ("city", "locality", "region", "state"):
+        v = first.get(key)
+        if isinstance(v, str) and v.strip():
+            parts.append(v.strip())
+            break
+    country = first.get("country")
+    if isinstance(country, str) and country.strip():
+        parts.append(country.strip())
+    if not parts:
+        for key in ("label", "name", "displayName"):
+            v = first.get(key)
+            if isinstance(v, str) and v.strip():
+                parts.append(v.strip())
+                break
+    return ", ".join(parts)
+
+
 def fetch_foundit(keyword: str, location: str, pages: int = 3) -> list:
     cookie = _cookie("foundit")
     if not cookie:
@@ -538,7 +585,7 @@ def fetch_foundit(keyword: str, location: str, pages: int = 3) -> list:
                 company_data = item.get("company") or {}
                 comp = company_data.get("name", "") if isinstance(company_data, dict) else ""
                 locs = item.get("locations") or []
-                loc_txt = locs[0].get("city", location) if locs else location
+                loc_txt = _foundit_location(locs)
                 posted = item.get("postedAt", 0)
                 try:
                     posted = datetime.fromtimestamp(posted / 1000).strftime("%Y-%m-%d")
@@ -563,7 +610,7 @@ def fetch_foundit(keyword: str, location: str, pages: int = 3) -> list:
                     "portal":   "Foundit",
                     "title":    item.get("title", ""),
                     "company":  comp,
-                    "location": loc_txt or location,
+                    "location": loc_txt,
                     "posted_date": posted,
                     "salary_min": salmin,
                     "salary_max": 0,
