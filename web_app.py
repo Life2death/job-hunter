@@ -843,6 +843,32 @@ renderBreakdownTable(BREAKDOWN_ALL.rows,   BREAKDOWN_ALL.grand_total,   'allTime
 
 # ─── API ────────────────────────────────────────────────
 
+_PORTAL_HOSTS = {
+    "naukri": "https://www.naukri.com/",
+    "foundit": "https://www.foundit.in/",
+    "iimjobs": "https://www.iimjobs.com/",
+}
+
+
+def _absolutize_urls(rows):
+    """Force job URLs absolute before serving.
+
+    Some rows (notably older Naukri imports) stored a host-relative path like
+    "job-listings-...-240626004046". The grid sets `a.href` to that value, so
+    the browser resolves it against the dashboard host
+    (job-hunter-*.onrender.com) and the link 404s. Prefix the portal host for
+    any value lacking a scheme. Fixes existing rows without a DB migration.
+    """
+    for r in rows:
+        url = (r.get("url") or "").strip()
+        if not url or url.startswith("http://") or url.startswith("https://"):
+            continue
+        host = _PORTAL_HOSTS.get((r.get("portal") or "").lower())
+        if host:
+            r["url"] = host + url.lstrip("/")
+    return rows
+
+
 @app.route("/api/jobs")
 def api_jobs():
     cloud = get_cloud()
@@ -878,7 +904,7 @@ def api_jobs():
         batch = filtered_query().order("fit", desc=True).order("job_id").range(offset, offset + limit - 1).execute()
         cnt = filtered_query("job_id", with_count=True).execute()
         total = getattr(cnt, 'count', 0) or 0
-        return jsonify({"rows": batch.data or [], "total": total})
+        return jsonify({"rows": _absolutize_urls(batch.data or []), "total": total})
 
     page_size = 1000
     all_jobs = []
@@ -892,7 +918,7 @@ def api_jobs():
         if len(data) < page_size:
             break
         off += page_size
-    return jsonify(all_jobs)
+    return jsonify(_absolutize_urls(all_jobs))
 
 
 @app.route("/api/jobs/count")

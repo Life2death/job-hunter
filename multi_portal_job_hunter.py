@@ -737,6 +737,23 @@ def _naukri_nkparam(page_type="srp"):
     import base64
     return base64.b64encode(encrypted).decode("utf-8")
 
+def _naukri_url(raw: str, jid: str) -> str:
+    """Return an absolute naukri.com URL.
+
+    Naukri's `jdURL` is often a host-relative path (e.g.
+    "job-listings-...-240626004046", sometimes with a leading "/"). Stored
+    as-is, the dashboard renders it as a relative href and the browser
+    resolves it against its own host (job-hunter-*.onrender.com), producing
+    a dead link. Force an absolute https://www.naukri.com URL.
+    """
+    raw = (raw or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if raw:
+        return "https://www.naukri.com/" + raw.lstrip("/")
+    return f"https://www.naukri.com/job-listings-{jid}" if jid else ""
+
+
 def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
     cookie = os.environ.get("NAUKRI_COOKIE") or _cookie("naukri")
     if not cookie:
@@ -823,7 +840,7 @@ def fetch_naukri(keyword: str, location: str, pages: int = 3) -> list:
                     "salary_min": sal_min,
                     "salary_max": 0,
                     "description": (item.get("jobDescription", "") or "")[:500],
-                    "url": item.get("jdURL") or item.get("jobUrl") or (f"https://www.naukri.com/job-listings-{jid}" if jid else ""),
+                    "url": _naukri_url(item.get("jdURL") or item.get("jobUrl") or "", jid),
                 })
             time.sleep(1)
         except Exception as e:
