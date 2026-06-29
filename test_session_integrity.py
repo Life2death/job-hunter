@@ -91,8 +91,9 @@ class TestLoginPage:
 class TestEmptyStateBanners:
     """Dashboard banners for unconfigured / empty states."""
 
-    def test_no_supabase_shows_not_configured_banner(self, client):
-        """When SUPABASE_URL/KEY are unset, show 'not configured' banner."""
+    def test_no_supabase_shows_not_configured_banner(self, client, monkeypatch):
+        """When get_cloud returns None, show 'not configured' banner."""
+        monkeypatch.setattr("web_app.get_cloud", lambda: None)
         set_session(client, {"user_id": "uid-123", "email": "a@b.com"})
         resp = client.get("/")
         body = resp.data.decode()

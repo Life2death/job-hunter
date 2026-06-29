@@ -1197,11 +1197,13 @@ def dashboard():
   No jobs found for your account yet. The daily extraction may not have run, or you may be logged in with a different email than your data.
 </div>"""
 
-    html = banner + generate_dashboard_html(today_data=today_data, today_applied=today_applied,
+    html = generate_dashboard_html(today_data=today_data, today_applied=today_applied,
                                    week_daily=week_daily, week_daily_applied=week_daily_applied,
                                    week_daily_highfit=week_daily_highfit,
                                    week_daily_highfit_applied=week_daily_highfit_applied,
                                    all_data=all_data, all_applied=all_applied)
+    if banner:
+        html = html.replace("<body>", "<body>" + banner, 1)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
