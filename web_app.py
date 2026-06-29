@@ -100,7 +100,8 @@ PUBLIC_ENDPOINTS = ["login", "signup"]
 def check_auth():
     if request.endpoint in PUBLIC_ENDPOINTS:
         return None
-    if "user_id" not in session:
+    if not session.get("user_id") or not session.get("email"):
+        session.clear()
         return redirect("/login")
 
 AUTH_CSS = """<style>
@@ -1185,7 +1186,18 @@ def dashboard():
             traceback.print_exc()
     else:
         print(f"[dashboard] SKIPPED breakdown (cloud or uid missing)", flush=True)
-    html = generate_dashboard_html(today_data=today_data, today_applied=today_applied,
+
+    banner = ""
+    if cloud is None:
+        banner = """<div style="background:#f8d7da;border:1px solid #f5c6cb;color:#721c24;padding:10px 16px;border-radius:6px;margin-bottom:16px;font-size:13px;">
+  Database connection not configured — contact admin.
+</div>"""
+    elif u and today_data is _empty:
+        banner = """<div style="background:#d1ecf1;border:1px solid #bee5eb;color:#0c5460;padding:10px 16px;border-radius:6px;margin-bottom:16px;font-size:13px;">
+  No jobs found for your account yet. The daily extraction may not have run, or you may be logged in with a different email than your data.
+</div>"""
+
+    html = banner + generate_dashboard_html(today_data=today_data, today_applied=today_applied,
                                    week_daily=week_daily, week_daily_applied=week_daily_applied,
                                    week_daily_highfit=week_daily_highfit,
                                    week_daily_highfit_applied=week_daily_highfit_applied,
@@ -1458,7 +1470,7 @@ def handle_login(result, email):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        if "user_id" in session:
+        if session.get("user_id") and session.get("email"):
             return redirect("/")
         return LOGIN_FORM
 
